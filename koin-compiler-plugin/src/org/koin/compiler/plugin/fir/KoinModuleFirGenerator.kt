@@ -271,22 +271,39 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
     // Uses moduleClassInfos to get pre-captured source file info for hint generation
     private val configurationModules: List<ConfigurationModule> by lazy {
         log { "Looking for @Configuration modules among ${moduleClassInfos.size} @Module classes" }
+
+        // Use predicate-based discovery as primary mechanism for detecting @Configuration.
+        // This works reliably in multi-target KMP where coneTypeOrNull may return null
+        // for annotation type refs on KtLightSourceElement classes (commonMain in platform compilations).
+        val configClassIds = session.predicateBasedProvider
+            .getSymbolsByPredicate(configurationPredicate)
+            .filterIsInstance<FirClassSymbol<*>>()
+            .map { it.classId }
+            .toSet()
+        log { "  Predicate found ${configClassIds.size} @Configuration classes: $configClassIds" }
+
         val modules = moduleClassInfos.mapNotNull { moduleInfo ->
             val classSymbol = moduleInfo.classSymbol
+
+            // Primary: check via predicate (reliable in KMP multi-target)
+            val hasConfigurationViaPredicate = classSymbol.classId in configClassIds
+
+            // Try to find the annotation via coneTypeOrNull for label extraction
             val configAnnotation = classSymbol.fir.annotations
                 .filterIsInstance<FirAnnotationCall>()
                 .firstOrNull { annotation ->
-                    // Use coneTypeOrNull to safely handle unresolved type references
-                    // This prevents crashes when other FIR extensions (e.g., kotlinx-serialization)
-                    // haven't yet resolved their annotations
                     val annotationClassId = annotation.annotationTypeRef.coneTypeOrNull?.classId
                     annotationClassId?.asSingleFqName() == CONFIGURATION_ANNOTATION
                 }
 
-            if (configAnnotation != null) {
-                // Extract labels from @Configuration annotation
-                val labels = extractConfigurationLabels(configAnnotation)
-                log { "  -> ${classSymbol.classId}: @Configuration labels=$labels, file=${moduleInfo.containingFileName}" }
+            if (hasConfigurationViaPredicate || configAnnotation != null) {
+                // Extract labels: use annotation arguments if available, default to ["default"]
+                val labels = if (configAnnotation != null) {
+                    extractConfigurationLabels(configAnnotation)
+                } else {
+                    listOf(KoinConfigurationRegistry.DEFAULT_LABEL)
+                }
+                log { "  -> ${classSymbol.classId}: @Configuration labels=$labels, file=${moduleInfo.containingFileName} (predicate=$hasConfigurationViaPredicate, coneType=${configAnnotation != null})" }
                 ConfigurationModule(classSymbol, labels, moduleInfo.containingFileName)
             } else {
                 log { "  -> ${classSymbol.classId}: no @Configuration" }
@@ -349,6 +366,12 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
     // Predicate for @Module annotated classes
     private val modulePredicate = LookupPredicate.create { annotated(MODULE_ANNOTATION) }
 
+    // Predicates for @Configuration and @ComponentScan - used for KMP-safe annotation detection
+    // In multi-target KMP, coneTypeOrNull on annotation type refs may return null for KtLightSourceElement classes,
+    // so we use predicates as the primary detection mechanism (they use the compiler's internal annotation matching)
+    private val configurationPredicate = LookupPredicate.create { annotated(CONFIGURATION_ANNOTATION) }
+    private val componentScanPredicate = LookupPredicate.create { annotated(COMPONENT_SCAN_ANNOTATION) }
+
     // Predicates for definition annotations - used for cross-module @ComponentScan discovery
     private val singletonPredicate = LookupPredicate.create { annotated(SINGLETON_ANNOTATION) }
     private val singlePredicate = LookupPredicate.create { annotated(SINGLE_ANNOTATION) }
@@ -370,10 +393,24 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
     // Collect packages scanned by local @Module @ComponentScan classes
     // Used to filter definition hints - only generate hints for "orphan" definitions not covered locally
     private val localScanPackages: Set<String> by lazy {
+        // Use predicate-based discovery as primary mechanism for detecting @ComponentScan.
+        // This works reliably in multi-target KMP where coneTypeOrNull may return null
+        // for annotation type refs on KtLightSourceElement classes (commonMain in platform compilations).
+        val scanClassIds = session.predicateBasedProvider
+            .getSymbolsByPredicate(componentScanPredicate)
+            .filterIsInstance<FirClassSymbol<*>>()
+            .map { it.classId }
+            .toSet()
+        log { "  Predicate found ${scanClassIds.size} @ComponentScan classes: $scanClassIds" }
+
         val packages = mutableSetOf<String>()
         for (moduleClassInfo in moduleClassInfos) {
             val classSymbol = moduleClassInfo.classSymbol
-            // Check for @ComponentScan annotation
+
+            // Primary: check via predicate (reliable in KMP multi-target)
+            val hasComponentScanViaPredicate = classSymbol.classId in scanClassIds
+
+            // Try to find the annotation via coneTypeOrNull for package extraction
             val componentScanAnnotation = classSymbol.fir.annotations
                 .filterIsInstance<FirAnnotationCall>()
                 .firstOrNull { annotation ->
@@ -381,9 +418,14 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
                     annotationClassId?.asSingleFqName() == COMPONENT_SCAN_ANNOTATION
                 }
 
-            if (componentScanAnnotation != null) {
-                // Extract packages from @ComponentScan
-                val scanPkgs = extractComponentScanPackages(componentScanAnnotation, classSymbol)
+            if (hasComponentScanViaPredicate || componentScanAnnotation != null) {
+                // Extract packages: use annotation arguments if available, default to class's own package
+                val scanPkgs = if (componentScanAnnotation != null) {
+                    extractComponentScanPackages(componentScanAnnotation, classSymbol)
+                } else {
+                    listOf(classSymbol.classId.packageFqName.asString())
+                }
+                log { "  -> ${classSymbol.classId}: @ComponentScan packages=$scanPkgs (predicate=$hasComponentScanViaPredicate, coneType=${componentScanAnnotation != null})" }
                 packages.addAll(scanPkgs)
             }
         }
@@ -724,6 +766,9 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
     override fun FirDeclarationPredicateRegistrar.registerPredicates() {
         log { "registerPredicates: Registering predicates for @Module and definition annotations" }
         register(modulePredicate)
+        // Configuration and ComponentScan predicates for KMP-safe annotation detection
+        register(configurationPredicate)
+        register(componentScanPredicate)
         // Definition predicates for cross-module @ComponentScan discovery
         register(singletonPredicate)
         register(singlePredicate)
