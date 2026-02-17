@@ -29,9 +29,20 @@ import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
+import org.jetbrains.kotlin.platform.TargetPlatform
+import org.jetbrains.kotlin.platform.isJs
+import org.jetbrains.kotlin.platform.isWasm
 import org.jetbrains.kotlin.platform.konan.isNative
 import org.koin.compiler.plugin.KoinAnnotationFqNames
 import org.koin.compiler.plugin.KoinPluginConstants
+
+/**
+ * Check if the target platform uses KLIB serialization.
+ * KLIB-based targets (Native, JS, Wasm) cannot handle FIR-generated declarations
+ * without real source files, causing "No file found for source null" crashes (KT-82395).
+ */
+private fun TargetPlatform?.isKlib(): Boolean =
+    this != null && (isNative() || isJs() || isWasm())
 
 /**
  * FIR extension that generates:
@@ -202,11 +213,16 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
         val containingFileName: String?
     )
 
-    // Check if we're compiling for a Kotlin/Native target
-    private val isNativeTarget: Boolean by lazy {
-        val isNative = session.moduleData.platform.isNative()
-        log { "Platform check: isNative=$isNative" }
-        isNative
+    // Check if we're compiling for a KLIB-based target (Native, JS, or Wasm)
+    // KLIB serialization cannot handle synthetic FIR declarations without a real source file,
+    // causing "No file found for source null" crashes (KT-82395).
+    // On these targets, we skip generating synthetic hint/module functions and rely on
+    // registry-based discovery instead.
+    private val isKlibTarget: Boolean by lazy {
+        val platform = session.moduleData.platform
+        val isKlib = platform.isKlib()
+        log { "Platform check: isKlib=$isKlib (native=${platform.isNative()}, js=${platform.isJs()}, wasm=${platform.isWasm()})" }
+        isKlib
     }
 
     // Cache of module classes found (@Module) - generates .module extension property
@@ -247,7 +263,7 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
                         if (isRealSource) {
                             // Use deterministic synthetic file names
                             val syntheticName = syntheticFileName(classSymbol.classId, "Module")
-                            log { "    RealSourceElement ($sourceType): using synthetic file name=$syntheticName, isNative=$isNativeTarget" }
+                            log { "    RealSourceElement ($sourceType): using synthetic file name=$syntheticName, isKlib=$isKlibTarget" }
                             syntheticName
                         } else {
                             // Skip classes from dependencies (JARs/metadata)
@@ -798,6 +814,15 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
 
         val callableIds = mutableSetOf<CallableId>()
 
+        // On KLIB targets (Native, JS, Wasm), skip ALL top-level declaration generation.
+        // KLIB serialization cannot handle FIR-generated declarations (source=null) and crashes
+        // with "No file found for source null" (KT-82395).
+        // On these targets, the IR phase handles everything via registry-based discovery.
+        if (isKlibTarget) {
+            log { "getTopLevelCallableIds() returning 0 callables (KLIB target - skipping all FIR generation)" }
+            return emptySet()
+        }
+
         // Generate module extension functions for @Module classes
         // These are needed for cross-module references (startKoin finding modules from dependencies)
         moduleClasses.forEach { classSymbol ->
@@ -868,12 +893,12 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
                     // Use pre-captured file name from ConfigurationModule (captured during discovery)
                     val containingFile = configModule.containingFileName
 
-                    // Skip hint function generation on Native targets entirely
-                    // FIR-generated hint functions with synthetic file names cause ObjC export crashes:
-                    // "NotImplementedError: An operation is not implemented" in findSourceFile
-                    // Cross-module discovery still works via the registry (populated in FIR phase)
-                    if (isNativeTarget) {
-                        log { "  -> Skipping hint for ${classSymbol.classId} on Native target (registry handles discovery)" }
+                    // Skip hint function generation on KLIB targets (Native, JS, Wasm) entirely.
+                    // FIR-generated hint functions with synthetic file names cause KLIB serialization crashes:
+                    // "No file found for source null" (KT-82395) and ObjC export failures.
+                    // Cross-module discovery still works via the registry (populated in FIR phase).
+                    if (isKlibTarget) {
+                        log { "  -> Skipping hint for ${classSymbol.classId} on KLIB target (registry handles discovery)" }
                         return@mapNotNull null
                     }
 
@@ -919,9 +944,9 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
                 val isActual = classSymbol.rawStatus.isActual
                 log { "  -> Source for ${classSymbol.classId}: containingFile=$containingFile, isActual=$isActual" }
 
-                // Skip synthetic file generation on Native targets - causes ObjC export failures
-                if (containingFile == null && isNativeTarget) {
-                    log { "  -> Skipping module() for ${classSymbol.classId} on Native target (no source file)" }
+                // Skip synthetic file generation on KLIB targets - causes serialization failures (KT-82395)
+                if (containingFile == null && isKlibTarget) {
+                    log { "  -> Skipping module() for ${classSymbol.classId} on KLIB target (no source file)" }
                     return@mapNotNull null
                 }
 
@@ -950,10 +975,10 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
                 val matchingDefinitions = definitionClassInfos.filter { it.definitionType == defType }
                 log { "generateFunctions: Generating definition hints for type '$defType', ${matchingDefinitions.size} classes" }
 
-                // Skip all definition hint generation on Native targets
-                // Same as configuration hints - causes ObjC export crashes
-                if (isNativeTarget) {
-                    log { "generateFunctions: Skipping definition hints on Native target" }
+                // Skip all definition hint generation on KLIB targets (Native, JS, Wasm)
+                // Same as configuration hints - causes KLIB serialization crashes (KT-82395)
+                if (isKlibTarget) {
+                    log { "generateFunctions: Skipping definition hints on KLIB target" }
                     return emptyList()
                 }
 
