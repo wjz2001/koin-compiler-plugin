@@ -93,6 +93,9 @@ object KoinAnnotationFqNames {
     /** @PropertyValue annotation - provides default value for property injection. */
     val PROPERTY_VALUE = FqName("org.koin.core.annotation.PropertyValue")
 
+    /** @Provided annotation - marks a type as externally provided (skips safety validation). */
+    val PROVIDED = FqName("org.koin.core.annotation.Provided")
+
     // ================================================================================
     // Application Annotations
     // ================================================================================

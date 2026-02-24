@@ -28,6 +28,7 @@ import org.jetbrains.kotlin.name.Name
 import org.koin.compiler.plugin.KoinAnnotationFqNames
 import org.koin.compiler.plugin.KoinConfigurationRegistry
 import org.koin.compiler.plugin.KoinPluginLogger
+import org.koin.compiler.plugin.ProvidedTypeRegistry
 import org.koin.compiler.plugin.PropertyValueRegistry
 import org.koin.compiler.plugin.fir.KoinModuleFirGenerator
 
@@ -87,6 +88,7 @@ class KoinAnnotationProcessor(
     private val injectedParamAnnotationFqName = KoinAnnotationFqNames.INJECTED_PARAM
     private val propertyAnnotationFqName = KoinAnnotationFqNames.PROPERTY
     private val propertyValueAnnotationFqName = KoinAnnotationFqNames.PROPERTY_VALUE
+    private val providedAnnotationFqName = KoinAnnotationFqNames.PROVIDED
 
     // Scope archetype annotations
     private val viewModelScopeFqName = KoinAnnotationFqNames.VIEW_MODEL_SCOPE
@@ -140,8 +142,9 @@ class KoinAnnotationProcessor(
      * Phase 1: Collect all annotated classes, functions, and property values
      */
     fun collectAnnotations(moduleFragment: IrModuleFragment) {
-        // Clear the property value registry for fresh compilation
+        // Clear registries for fresh compilation
         PropertyValueRegistry.clear()
+        ProvidedTypeRegistry.clear()
 
         moduleFragment.acceptChildrenVoid(object : IrVisitorVoid() {
             override fun visitElement(element: IrElement) {
@@ -241,6 +244,17 @@ class KoinAnnotationProcessor(
                         val annotationName = getDefinitionAnnotationName(defFunc.irFunction) ?: defFunc.definitionType.name
                         KoinPluginLogger.user { "  @$annotationName on function ${defFunc.irFunction.name}() -> ${defFunc.returnTypeClass.name}" }
                     }
+                }
+            }
+        }
+
+        // Check for @Provided annotation — marks a type as externally available
+        if (declaration.hasAnnotation(providedAnnotationFqName)) {
+            val fqName = declaration.fqNameWhenAvailable?.asString()
+            if (fqName != null) {
+                ProvidedTypeRegistry.register(fqName)
+                if (KoinPluginLogger.userLogsEnabled) {
+                    KoinPluginLogger.user { "@Provided on class ${declaration.name}" }
                 }
             }
         }

@@ -8,6 +8,7 @@ import org.jetbrains.kotlin.ir.util.primaryConstructor
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.koin.compiler.plugin.KoinPluginLogger
+import org.koin.compiler.plugin.ProvidedTypeRegistry
 import org.koin.compiler.plugin.PropertyValueRegistry
 
 /**
@@ -77,6 +78,25 @@ data class ProvidedBinding(
 @Suppress("DEPRECATION", "DEPRECATION_ERROR")
 class BindingRegistry {
 
+    companion object {
+        /**
+         * Framework types that are always available at runtime (provided by the platform, not DI).
+         * These are skipped during validation to avoid false positives.
+         */
+        private val WHITELISTED_TYPES = setOf(
+            // Android core
+            "android.content.Context",
+            "android.app.Activity",
+            "android.app.Application",
+            // AndroidX
+            "androidx.fragment.app.Fragment",
+            "androidx.lifecycle.SavedStateHandle",
+            "androidx.work.WorkerParameters",
+        )
+
+        fun isWhitelistedType(fqName: String): Boolean = fqName in WHITELISTED_TYPES
+    }
+
     private val allBindings = mutableListOf<ProvidedBinding>()
 
     fun clear() {
@@ -145,6 +165,10 @@ class BindingRegistry {
                     }
                     continue
                 }
+
+                // Skip @Provided types and framework-provided types (always available at runtime)
+                val reqFqName = req.typeKey.fqName?.asString() ?: req.typeKey.classId?.asFqNameString()
+                if (reqFqName != null && (ProvidedTypeRegistry.isProvided(reqFqName) || isWhitelistedType(reqFqName))) continue
 
                 // Look for a matching provider
                 val found = findProvider(req, providedTypes, defScopeClass)
