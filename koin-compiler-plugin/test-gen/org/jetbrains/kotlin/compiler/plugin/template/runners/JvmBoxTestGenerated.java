@@ -239,6 +239,12 @@ public class JvmBoxTestGenerated extends AbstractJvmBoxTest {
     }
 
     @Test
+    @TestMetadata("configuration_group.kt")
+    public void testConfiguration_group() {
+      runTest("koin-compiler-plugin/testData/box/safety/configuration_group.kt");
+    }
+
+    @Test
     @TestMetadata("default_value_ok.kt")
     public void testDefault_value_ok() {
       runTest("koin-compiler-plugin/testData/box/safety/default_value_ok.kt");
@@ -284,6 +290,12 @@ public class JvmBoxTestGenerated extends AbstractJvmBoxTest {
     @TestMetadata("scoped_visibility.kt")
     public void testScoped_visibility() {
       runTest("koin-compiler-plugin/testData/box/safety/scoped_visibility.kt");
+    }
+
+    @Test
+    @TestMetadata("startkoin_full_graph.kt")
+    public void testStartkoin_full_graph() {
+      runTest("koin-compiler-plugin/testData/box/safety/startkoin_full_graph.kt");
     }
   }
 

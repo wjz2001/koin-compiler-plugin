@@ -1,0 +1,40 @@
+FILE: Service.kt
+    package service
+
+    @R|org/koin/core/annotation/Singleton|() public final class Service : R|kotlin/Any| {
+        public constructor(missing: R|service/MissingDep|): R|service/Service| {
+            super<R|kotlin/Any|>()
+        }
+
+        public final val missing: R|service/MissingDep| = R|<local>/missing|
+            public get(): R|service/MissingDep|
+
+    }
+    public final class MissingDep : R|kotlin/Any| {
+        public constructor(): R|service/MissingDep| {
+            super<R|kotlin/Any|>()
+        }
+
+    }
+FILE: modules.kt
+    @R|org/koin/core/annotation/Module|() @R|org/koin/core/annotation/ComponentScan|(value = vararg(String(service))) public final class ServiceModule : R|kotlin/Any| {
+        public constructor(): R|ServiceModule| {
+            super<R|kotlin/Any|>()
+        }
+
+    }
+    @R|org/koin/core/annotation/KoinApplication|(modules = <collectionLiteralCall>(<getClass>(Q|ServiceModule|))) public final object MyApp : R|kotlin/Any| {
+        private constructor(): R|MyApp| {
+            super<R|kotlin/Any|>()
+        }
+
+    }
+FILE: main.kt
+    public final fun main(): R|kotlin/Unit| {
+        R|org/koin/plugin/module/dsl/startKoin|<R|MyApp|>(<L> = startKoin@fun R|org/koin/core/KoinApplication|.<anonymous>(): R|kotlin/Unit| <inline=NoInline>  {
+            ^@startKoin Unit
+        }
+        )
+    }
+FILE: /serviceModuleModule.kt
+    public final fun R|ServiceModule|.module(): R|org/koin/core/module/Module|

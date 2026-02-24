@@ -21,6 +21,12 @@ public class JvmDiagnosticTestGenerated extends AbstractJvmDiagnosticTest {
   }
 
   @Test
+  @TestMetadata("configuration_label_mismatch.kt")
+  public void testConfiguration_label_mismatch() {
+    runTest("koin-compiler-plugin/testData/diagnostics/configuration_label_mismatch.kt");
+  }
+
+  @Test
   @TestMetadata("lazy_missing.kt")
   public void testLazy_missing() {
     runTest("koin-compiler-plugin/testData/diagnostics/lazy_missing.kt");
@@ -42,5 +48,11 @@ public class JvmDiagnosticTestGenerated extends AbstractJvmDiagnosticTest {
   @TestMetadata("scoped_cross_scope.kt")
   public void testScoped_cross_scope() {
     runTest("koin-compiler-plugin/testData/diagnostics/scoped_cross_scope.kt");
+  }
+
+  @Test
+  @TestMetadata("startkoin_missing.kt")
+  public void testStartkoin_missing() {
+    runTest("koin-compiler-plugin/testData/diagnostics/startkoin_missing.kt");
   }
 }

@@ -1,173 +1,354 @@
 # Compile-Time Dependency Validation
 
-Design document for compile-time dependency graph validation.
+Detect missing dependencies at compile time instead of runtime crashes.
 
-## Goal
+## The Problem
 
-Detect missing dependencies at compile time instead of runtime. Currently, if you forget to declare a dependency, you get a runtime crash:
+Without compile-time safety, a missing dependency only surfaces at runtime:
 
 ```kotlin
 class MyService(val repo: Repository)
 
-val module = module {
-    single<MyService>()  // Compiles fine, crashes at runtime: "No definition for Repository"
+@Module @ComponentScan
+class AppModule
+
+@Singleton
+class MyService(val repo: Repository)
+// Repository is never declared → compiles fine, crashes at runtime:
+//   "No definition found for class 'Repository'"
+```
+
+## What Gets Validated
+
+| Scenario | Result |
+|----------|--------|
+| Non-nullable param, no definition | **ERROR** |
+| Nullable param (`T?`), no definition | OK — uses `getOrNull()` |
+| Param with default value, no definition | OK — uses Kotlin default (when `skipDefaultValues=true`) |
+| `@InjectedParam`, no definition | OK — provided at runtime via `parametersOf()` |
+| `@Property("key")` param | OK — property injection, not DI validation |
+| `List<T>` param | OK — `getAll()` returns empty list if none |
+| `Lazy<T>`, no definition for `T` | **ERROR** — unwraps to validate inner type |
+| `@Named("x")` param, no matching qualifier | **ERROR** — with hint if unqualified binding exists |
+| Scoped dependency from wrong scope | **ERROR** |
+| Default value param with `@Named` qualifier | **ERROR** — qualifier forces injection |
+
+## Validation Scopes
+
+Validation runs at three levels, each widening what is visible:
+
+### A1: Per-Module (local + includes)
+
+Each `@Module` is validated against its own definitions plus explicitly included modules.
+
+```kotlin
+@Module(includes = [DataModule::class])
+@ComponentScan("app")
+class AppModule
+// Validates: definitions from AppModule + DataModule
+```
+
+### A2: Configuration Group (same @Configuration label)
+
+Modules sharing a `@Configuration` label are loaded together at runtime. Their definitions are mutually visible during validation.
+
+```kotlin
+@Module @ComponentScan("core") @Configuration("prod")
+class CoreModule  // provides Repository
+
+@Module @ComponentScan("service") @Configuration("prod")
+class ServiceModule  // Service(repo: Repository) → OK, Repository visible from CoreModule
+```
+
+Different labels are isolated:
+```kotlin
+@Configuration("core")   // ← "core" label
+class CoreModule
+
+@Configuration("service") // ← "service" label — different, CoreModule NOT visible
+class ServiceModule       // Service(repo: Repository) → ERROR
+```
+
+### A3: startKoin Entry Point (full graph)
+
+When `startKoin<T>()` is used with `@KoinApplication`, the full assembled graph is validated.
+
+```kotlin
+@KoinApplication(modules = [CoreModule::class, ServiceModule::class])
+object MyApp
+
+startKoin<MyApp> { }
+// Validates: ALL definitions from CoreModule + ServiceModule combined
+```
+
+## Error Messages
+
+Errors report the missing type, which definition needs it, and in which module:
+
+```
+[Koin] Missing dependency: Repository
+  required by: Service (parameter 'repo')
+  in module: ServiceModule
+```
+
+When a binding exists with a different qualifier, a hint is shown:
+
+```
+[Koin] Missing dependency: NetworkClient (qualifier: @Named("http"))
+  required by: ApiService (parameter 'client')
+  in module: AppModule
+  Hint: Found NetworkClient without qualifier — did you mean to add @Named("http")?
+```
+
+For A3 validation, the application name is used:
+
+```
+[Koin] Missing dependency: MissingDep
+  required by: Service (parameter 'missing')
+  in module: MyApp (startKoin)
+```
+
+## Configuration
+
+```kotlin
+koinCompiler {
+    // Enable/disable safety checks (default: enabled when userLogs or debugLogs is true)
+    userLogs = true
 }
 ```
 
-## Key Insight: Plugin Already Has All The Information
+Safety checks are gated by `KoinPluginLogger.safetyChecksEnabled`.
 
-The current plugin transformation **already scans** constructor/function parameters to generate `get()`, `getOrNull()`, `inject()` calls. This means we know exactly:
+---
 
-1. **What is provided** - Each `single<T>()`, `factory<T>()`, etc. provides type `T`
-2. **What is required** - Each parameter in the constructor/function
+# Implementation
 
-```kotlin
-// When transforming single<MyService>(), the plugin sees:
-// - Provides: MyService
-// - Requires: Repository (non-nullable), Logger? (nullable), Config (has default)
+## Architecture Overview
+
+Validation runs during the IR phase (Phase 1: `KoinAnnotationProcessor`), after definitions are collected but before module function bodies are generated. A3 validation additionally runs in Phase 3 (`KoinStartTransformer`).
+
+```
+IR Phase 1: KoinAnnotationProcessor
+  ├── collectAnnotations()              → discover @Module, @Singleton, etc.
+  ├── generateModuleExtensions()        → for each module:
+  │   ├── collect local definitions
+  │   ├── collect cross-module definitions (hints)
+  │   ├── A1: add definitions from includes
+  │   ├── A2: add definitions from @Configuration siblings
+  │   ├── BindingRegistry.validateModule()   ← validation happens here
+  │   └── generate module() function body
+  └── expose: collectedModuleClasses, getDefinitionsForModule()
+
+IR Phase 3: KoinStartTransformer
+  ├── visitCall(startKoin<T>)           → extract @KoinApplication modules
+  ├── A3: validateFullGraph()           → validate ALL modules combined
+  └── transform to startKoinWith(modules, lambda)
 ```
 
-## Implementation: Two-Pass Approach
+## Key Components
 
-### Pass 1: Collect bindings (during IR transformation)
+### BindingRegistry (`ir/BindingRegistry.kt`)
+
+The validation engine. Stateless — create a new instance per validation scope.
+
+**Data types:**
 
 ```kotlin
-// In KoinDSLTransformer
-data class Binding(
-    val providedType: IrType,
-    val qualifier: String?,
-    val scope: String?,  // "_root_" or scope name
-    val requirements: List<Requirement>
+// Identifies a type in the DI container
+data class TypeKey(
+    val classId: ClassId?,    // for cross-module matching
+    val fqName: FqName?       // for display and fallback matching
 )
 
+// A parameter that needs a dependency
 data class Requirement(
-    val type: IrType,
-    val qualifier: String?,
+    val typeKey: TypeKey,
+    val paramName: String,
     val isNullable: Boolean,
     val hasDefault: Boolean,
     val isInjectedParam: Boolean,
-    val isLazy: Boolean
+    val isLazy: Boolean,
+    val isList: Boolean,
+    val isProperty: Boolean,
+    val qualifier: QualifierValue?
 )
 
-// Collect while transforming
-private val bindings = mutableListOf<Binding>()
+// A definition that provides a type
+data class ProvidedBinding(
+    val typeKey: TypeKey,
+    val qualifier: QualifierValue?,
+    val scopeClass: IrClass?,
+    val bindings: List<TypeKey>,      // auto-bound interfaces
+    val requirements: List<Requirement>,
+    val sourceName: String
+)
+```
 
-override fun visitCall(expression: IrCall): IrExpression {
-    // ... existing transformation logic ...
+**Core method — `validateModule()`:**
 
-    // After transforming, record the binding
-    bindings.add(Binding(
-        providedType = returnTypeClass.defaultType,
-        qualifier = getNamedAnnotationValue(returnTypeClass),
-        scope = currentScope,
-        requirements = referencedFunction.valueParameters.map { param ->
-            Requirement(
-                type = param.type,
-                qualifier = getNamedAnnotationValueFromParameter(param),
-                isNullable = param.type.isNullable(),
-                hasDefault = param.hasDefaultValue(),
-                isInjectedParam = hasInjectedParamAnnotation(param),
-                isLazy = isLazyType(param.type)
-            )
-        }
-    ))
+```
+validateModule(moduleName, definitions, parameterAnalyzer, qualifierExtractor)
+  │
+  ├── 1. Build provided types set
+  │   For each definition:
+  │     ├── add definition's own type (e.g. Repository)
+  │     └── add auto-bound interfaces (e.g. IRepository)
+  │
+  ├── 2. Validate each definition's requirements
+  │   For each definition → for each constructor parameter:
+  │     ├── ParameterAnalyzer classifies it as Requirement
+  │     ├── Requirement.requiresValidation() filters out safe params
+  │     └── findProvider() searches the provided set
+  │         ├── match by FqName or ClassId
+  │         ├── match qualifier (StringQualifier or TypeQualifier)
+  │         └── check scope visibility
+  │
+  └── 3. Report missing dependencies
+      └── reportMissingDependency() with hints for similar bindings
+```
 
-    return transformedCall
+**Scope visibility rules:**
+- Root-scope providers (no `@Scope`) → visible to all consumers
+- Same-scope providers → visible within their scope
+- Cross-scope → **not visible** (ERROR)
+
+### ParameterAnalyzer (`ir/ParameterAnalyzer.kt`)
+
+Converts IR function/constructor parameters into `Requirement` objects. Mirrors `KoinArgumentGenerator` logic but produces data instead of IR code.
+
+Classification rules:
+- `@InjectedParam` → `isInjectedParam=true` → skip validation
+- `@Property("key")` → `isProperty=true` → skip validation
+- `Lazy<T>` → `isLazy=true`, unwraps to `T` for type matching
+- `List<T>` → `isList=true` → skip validation
+- `T?` → `isNullable=true` → skip validation
+- Default value + no qualifier + `skipDefaultValues` → skip validation
+- Everything else → **requires validation**
+
+### QualifierExtractor (`ir/QualifierExtractor.kt`)
+
+Reads qualifier annotations from parameters and definitions. Returns `QualifierValue`:
+
+```kotlin
+sealed class QualifierValue {
+    data class StringQualifier(val name: String)   // @Named("x"), @Qualifier(name="x")
+    data class TypeQualifier(val irClass: IrClass)  // @Qualifier(MyType::class)
 }
 ```
 
-### Pass 2: Validate graph (at end of module processing)
+Supports: `@Named` (Koin, jakarta, javax), `@Qualifier` (Koin), and custom qualifier annotations.
+
+### ConfigurationUtils (`ir/ConfigurationUtils.kt`)
+
+Shared utility for reading `@Configuration` labels from IR classes. Used by both A2 (in `KoinAnnotationProcessor`) and the `KoinStartTransformer` for configuration discovery.
 
 ```kotlin
-// In SimpleIrGenerationExtension
-override fun generate(moduleFragment: IrModuleFragment, pluginContext: IrPluginContext) {
-    // Pass 1: Transform and collect
-    moduleFragment.transform(KoinDSLTransformer(pluginContext), null)
+fun extractConfigurationLabels(irClass: IrClass): List<String>
+// @Configuration("a", "b") → ["a", "b"]
+// @Configuration            → ["default"]
+// No annotation             → []
+```
 
-    // Pass 2: Validate
-    validateDependencyGraph(pluginContext)
+### AnnotationModels (`ir/AnnotationModels.kt`)
+
+Unified `Definition` sealed class enables polymorphic handling:
+
+```kotlin
+sealed class Definition {
+    class ClassDef(val definitionClass: DefinitionClass)
+    class FunctionDef(val definitionFunction: DefinitionFunction)
+    class TopLevelFunctionDef(val definitionTopLevelFunction: DefinitionTopLevelFunction)
+
+    abstract val definitionType: DefinitionType
+    abstract val returnTypeClass: IrClass   // the provided type
+    abstract val bindings: List<IrClass>    // auto-bound interfaces
+    abstract val scopeClass: IrClass?       // scope, if scoped
 }
+```
 
-private fun validateDependencyGraph(context: IrPluginContext) {
-    val provided = bindings.map { TypeKey(it.providedType, it.qualifier, it.scope) }.toSet()
+## A2: Configuration Group Validation
 
-    for (binding in bindings) {
-        for (req in binding.requirements) {
-            // Skip validation for these cases
-            if (req.isInjectedParam) continue  // Provided at runtime via parametersOf()
-            if (req.isNullable) continue       // getOrNull() handles missing
-            if (req.hasDefault) continue       // Default value used if missing
+In `KoinAnnotationProcessor.generateModuleExtensions()`, after collecting local definitions and includes:
 
-            val key = TypeKey(req.type.unwrapLazy(), req.qualifier, binding.scope)
-            if (key !in provided) {
-                // Report error
-                context.reportCompilationError(
-                    "Missing dependency: ${req.type.render()}" +
-                    (req.qualifier?.let { " with qualifier '$it'" } ?: "") +
-                    " required by ${binding.providedType.render()}"
-                )
-            }
+```kotlin
+// A2: If this module is @Configuration, include sibling modules from the same group
+val configLabels = extractConfigurationLabels(moduleClass.irClass)
+if (configLabels.isNotEmpty()) {
+    val siblingModuleNames = KoinConfigurationRegistry.getModuleClassNamesForLabels(configLabels)
+    for (siblingName in siblingModuleNames) {
+        val siblingModule = moduleClasses.find {
+            it.irClass.fqNameWhenAvailable?.asString() == siblingName
+        }
+        if (siblingModule != null && siblingModule != moduleClass) {
+            allVisibleDefinitions.addAll(collectAllDefinitions(siblingModule))
         }
     }
 }
 ```
 
-## What We Can Validate
+`KoinConfigurationRegistry` is a System property-based registry populated during FIR phase. It maps labels to module FQ names, surviving the classloader boundary between FIR and IR.
 
-| Scenario | Validation |
-|----------|------------|
-| Non-nullable param, no definition | **ERROR** |
-| Nullable param, no definition | OK (uses `getOrNull()`) |
-| Param with default, no definition | OK (uses default) |
-| `@InjectedParam`, no definition | OK (provided via `parametersOf()`) |
-| `Lazy<T>`, no definition for T | **ERROR** |
-| `@Named("x")` param, no matching qualifier | **ERROR** |
-| Scoped dependency from wrong scope | **ERROR** |
+## A3: startKoin Full-Graph Validation
 
-## Reporting Errors
-
-Use IR diagnostics or FIR diagnostics:
+In `KoinStartTransformer.visitCall()`, after discovering all modules from `@KoinApplication`:
 
 ```kotlin
-// Option 1: IR phase - throw exception (stops compilation)
-throw IrCompilationException("Missing dependency: Repository required by MyService")
-
-// Option 2: FIR phase - proper diagnostic (better IDE integration)
-reporter.reportOn(source, KoinDiagnostics.MISSING_DEPENDENCY, "Repository", "MyService")
+if (KoinPluginLogger.safetyChecksEnabled && moduleClasses.isNotEmpty() && annotationProcessor != null) {
+    validateFullGraph(appClass, moduleClasses)
+}
 ```
 
-## Cross-Module Validation
+`validateFullGraph()` collects ALL definitions from ALL modules via `annotationProcessor.getDefinitionsForModule()` and runs `BindingRegistry.validateModule()` on the union.
 
-For multi-module projects, combine with hint generation:
+The `annotationProcessor` reference is passed from `KoinIrExtension` (Phase 1 → Phase 3).
 
-```kotlin
-// Module A generates hint for what it provides
-// org.koin.plugin.hints package
-fun koinProvides_ComExampleModuleA(t1: ServiceA, t2: ServiceB) = error("Stub!")
+## Test Coverage
 
-// Module B generates hint for what it requires
-fun koinRequires_ComExampleModuleB(t1: Repository, t2: ServiceA) = error("Stub!")
+### Unit Tests
 
-// App module queries all hints and validates complete graph
-```
+- `BindingRegistryTest` — 26 tests covering: type matching, qualifier matching, scope visibility, nullable/lazy/list/injectedParam/default skipping, missing dependency detection
+- `KoinAnnotationFqNamesTest` — annotation FQName correctness
 
-## Challenges
+### Box Tests (runtime verification)
 
-1. **Generics** - `List<String>` vs `List<Int>` need type argument comparison
-2. **Qualifiers** - Must match exactly (`@Named("prod")` != `@Named("test")`)
-3. **Scopes** - Root scope can see all, named scopes are isolated
-4. **Dynamic modules** - Modules added at runtime can't be validated
-5. **Third-party modules** - External Koin modules (no source) can't be scanned
+In `testData/box/safety/`:
 
-## Why This Is Easier Than Dagger
+| Test | Validates |
+|------|-----------|
+| `complete_graph.kt` | All deps satisfied → no error, runs OK |
+| `nullable_ok.kt` | Nullable params skip validation |
+| `injected_param_ok.kt` | `@InjectedParam` skips validation |
+| `default_value_ok.kt` | Default values skip validation |
+| `lazy_valid.kt` | `Lazy<T>` with T available → OK |
+| `list_ok.kt` | `List<T>` skips validation |
+| `qualifier_match.kt` | `@Named` qualifier matching works |
+| `scoped_visibility.kt` | Scope visibility rules |
+| `module_includes_visible.kt` | A1: included modules expand visibility |
+| `configuration_group.kt` | A2: `@Configuration` siblings share definitions |
+| `startkoin_full_graph.kt` | A3: `startKoin<T>` validates full graph |
 
-Dagger needs complex graph resolution because:
-- Bindings can come from `@Provides`, `@Binds`, `@Inject` constructors
-- Multibindings (`@IntoSet`, `@IntoMap`)
-- Component dependencies and subcomponents
+### Diagnostic Tests (compilation error verification)
 
-With Koin's plugin approach:
-- Every definition is explicit: `single<T>()`, `factory<T>()`
-- Requirements are just constructor parameters
-- No implicit bindings to track
-- **The transformation already does the hard work!**
+In `testData/diagnostics/`:
+
+| Test | Validates |
+|------|-----------|
+| `missing_dependency.kt` | Missing non-nullable dep → ERROR |
+| `lazy_missing.kt` | `Lazy<T>` with T missing → ERROR |
+| `qualifier_mismatch.kt` | Wrong qualifier → ERROR with hint |
+| `scoped_cross_scope.kt` | Cross-scope dependency → ERROR |
+| `configuration_label_mismatch.kt` | Different `@Configuration` labels → not visible → ERROR |
+| `startkoin_missing.kt` | A3: full graph still missing dep → ERROR |
+
+Each diagnostic test has `.fir.txt` (FIR golden file) and `.errors.txt` (error message golden file) for regression testing.
+
+## Current Status and Roadmap
+
+| Phase | Scope | Status |
+|-------|-------|--------|
+| A1 | Per-module (local + includes) | Done |
+| A2 | `@Configuration` group siblings | Done |
+| A3 | `startKoin<T>` full graph | Done |
+| B | DSL calls (`single<T>()`, `factory<T>()`) | Not started |
+| C | Cross-Gradle-module (definitions from dependency JARs via hints) | Not started |
+| D | `@Property`/`@PropertyValue` matching | Not started |

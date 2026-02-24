@@ -1,0 +1,63 @@
+FILE: Repository.kt
+    package core
+
+    @R|org/koin/core/annotation/Singleton|() public final class Repository : R|kotlin/Any| {
+        public constructor(): R|core/Repository| {
+            super<R|kotlin/Any|>()
+        }
+
+    }
+FILE: Service.kt
+    package service
+
+    @R|org/koin/core/annotation/Singleton|() public final class Service : R|kotlin/Any| {
+        public constructor(repo: R|core/Repository|): R|service/Service| {
+            super<R|kotlin/Any|>()
+        }
+
+        public final val repo: R|core/Repository| = R|<local>/repo|
+            public get(): R|core/Repository|
+
+    }
+FILE: modules.kt
+    @R|org/koin/core/annotation/Module|() @R|org/koin/core/annotation/ComponentScan|(value = vararg(String(core))) @R|org/koin/core/annotation/Configuration|() public final class CoreModule : R|kotlin/Any| {
+        public constructor(): R|CoreModule| {
+            super<R|kotlin/Any|>()
+        }
+
+    }
+    @R|org/koin/core/annotation/Module|() @R|org/koin/core/annotation/ComponentScan|(value = vararg(String(service))) @R|org/koin/core/annotation/Configuration|() public final class ServiceModule : R|kotlin/Any| {
+        public constructor(): R|ServiceModule| {
+            super<R|kotlin/Any|>()
+        }
+
+    }
+FILE: test.kt
+    public final fun box(): R|kotlin/String| {
+        lval koin: R|org/koin/core/Koin| = R|org/koin/dsl/koinApplication|(<L> = koinApplication@fun R|org/koin/core/KoinApplication|.<anonymous>(): R|kotlin/Unit| <inline=NoInline>  {
+            this@R|special/anonymous|.R|org/koin/core/KoinApplication.modules|(vararg(R|/CoreModule.CoreModule|().R|/module|(), R|/ServiceModule.ServiceModule|().R|/module|()))
+        }
+        ).R|org/koin/core/KoinApplication.koin|
+        lval service: R|service/Service| = R|<local>/koin|.R|org/koin/core/Koin.get|<R|service/Service|>()
+        ^box when () {
+            !=(R|<local>/service|.R|service/Service.repo|, Null(null)) ->  {
+                String(OK)
+            }
+            else ->  {
+                String(FAIL)
+            }
+        }
+
+    }
+FILE: /coreModuleModule.kt
+    public final fun R|CoreModule|.module(): R|org/koin/core/module/Module|
+FILE: /serviceModuleModule.kt
+    public final fun R|ServiceModule|.module(): R|org/koin/core/module/Module|
+FILE: org/koin/plugin/hints/coreModuleModule.kt
+    package org.koin.plugin.hints
+
+    public final fun configuration_default(contributed: R|CoreModule|): R|kotlin/Unit|
+FILE: org/koin/plugin/hints/serviceModuleModule.kt
+    package org.koin.plugin.hints
+
+    public final fun configuration_default(contributed: R|ServiceModule|): R|kotlin/Unit|

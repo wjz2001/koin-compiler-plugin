@@ -26,6 +26,7 @@ import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.koin.compiler.plugin.KoinAnnotationFqNames
+import org.koin.compiler.plugin.KoinConfigurationRegistry
 import org.koin.compiler.plugin.KoinPluginLogger
 import org.koin.compiler.plugin.PropertyValueRegistry
 import org.koin.compiler.plugin.fir.KoinModuleFirGenerator
@@ -52,8 +53,8 @@ class KoinAnnotationProcessor(
     private val context: IrPluginContext
 ) {
 
-    // Qualifier extraction helper
-    private val qualifierExtractor = QualifierExtractor(context)
+    // Qualifier extraction helper (internal for cross-phase validation)
+    internal val qualifierExtractor = QualifierExtractor(context)
 
     // Argument generator for lambda parameters
     private val argumentGenerator = KoinArgumentGenerator(context, qualifierExtractor)
@@ -67,8 +68,8 @@ class KoinAnnotationProcessor(
     // Definition call builder helper
     private val definitionCallBuilder = DefinitionCallBuilder(context, qualifierExtractor, lambdaBuilder, argumentGenerator)
 
-    // Safety check helpers
-    private val parameterAnalyzer = ParameterAnalyzer(qualifierExtractor)
+    // Safety check helpers (internal for cross-phase validation)
+    internal val parameterAnalyzer = ParameterAnalyzer(qualifierExtractor)
     private val bindingRegistry = BindingRegistry()
 
     // Annotation FQNames - use centralized registry
@@ -126,6 +127,14 @@ class KoinAnnotationProcessor(
     private val moduleClasses = mutableListOf<ModuleClass>()
     private val definitionClasses = mutableListOf<DefinitionClass>()
     private val definitionTopLevelFunctions = mutableListOf<DefinitionTopLevelFunction>()
+
+    /** Exposed for cross-phase validation (A3: startKoin full-graph). */
+    val collectedModuleClasses: List<ModuleClass> get() = moduleClasses
+
+    /** Get all definitions for a module (local + cross-module via hints). */
+    fun getDefinitionsForModule(moduleClass: ModuleClass): List<Definition> {
+        return collectAllDefinitions(moduleClass)
+    }
 
     /**
      * Phase 1: Collect all annotated classes, functions, and property values
@@ -651,12 +660,26 @@ class KoinAnnotationProcessor(
                 // Include definitions from included modules (transitive availability at runtime)
                 val allVisibleDefinitions = buildList {
                     addAll(definitions)
+                    // A1: Explicit includes
                     for (includedModuleClass in moduleClass.includedModules) {
                         val includedModule = moduleClasses.find {
                             it.irClass.fqNameWhenAvailable == includedModuleClass.fqNameWhenAvailable
                         }
                         if (includedModule != null) {
                             addAll(collectAllDefinitions(includedModule))
+                        }
+                    }
+                    // A2: If this module is @Configuration, include sibling modules from the same group
+                    val configLabels = extractConfigurationLabels(moduleClass.irClass)
+                    if (configLabels.isNotEmpty()) {
+                        val siblingModuleNames = KoinConfigurationRegistry.getModuleClassNamesForLabels(configLabels)
+                        for (siblingName in siblingModuleNames) {
+                            val siblingModule = moduleClasses.find {
+                                it.irClass.fqNameWhenAvailable?.asString() == siblingName
+                            }
+                            if (siblingModule != null && siblingModule != moduleClass) {
+                                addAll(collectAllDefinitions(siblingModule))
+                            }
                         }
                     }
                 }

@@ -1,0 +1,6 @@
+[Koin] Missing dependency: service.MissingDep
+  required by: service.Service (parameter 'missing')
+  in module: MyApp (startKoin)
+[Koin] Missing dependency: service.MissingDep
+  required by: service.Service (parameter 'missing')
+  in module: ServiceModule

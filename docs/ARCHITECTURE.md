@@ -87,6 +87,10 @@ META-INF/services/
 │  │         - Classes                                                     │   │
 │  │         - Functions inside @Module classes                            │   │
 │  │         - Top-level functions (discovered by @ComponentScan)          │   │
+│  │     └── VALIDATES dependency graph (compile-time safety):            │   │
+│  │         - A1: per-module (local defs + includes)                     │   │
+│  │         - A2: @Configuration group (sibling modules, same label)     │   │
+│  │         - Uses BindingRegistry + ParameterAnalyzer                   │   │
 │  │     └── FILLS BODY of FIR-generated .module property:                │   │
 │  │         val MyModule.module = module {                               │   │
 │  │             buildSingle(A::class, null) { A(get()) }                 │   │
@@ -104,6 +108,7 @@ META-INF/services/
 │  │         startKoin<MyApp>() → startKoinWith(modules, lambda)          │   │
 │  │         - Discovers @Configuration modules                           │   │
 │  │         - Injects modules from @KoinApplication annotation           │   │
+│  │         - A3: validates full assembled graph (compile-time safety)    │   │
 │  └──────────────────────────────────────────────────────────────────────┘   │
 │                              ↓                                               │
 │  ┌──────────────────────────────────────────────────────────────────────┐   │
@@ -145,12 +150,16 @@ This is why `.module` property is declared in FIR but its body is filled in IR.
 |------|---------|
 | `KoinIrExtension.kt` | Orchestrates all IR transformers in correct order. |
 | `KoinHintTransformer.kt` | Fills bodies for FIR-generated hint functions. |
-| `KoinAnnotationProcessor.kt` | Processes @Singleton/@Factory on classes, module functions, and top-level functions. Fills `.module` body. |
+| `KoinAnnotationProcessor.kt` | Processes @Singleton/@Factory on classes, module functions, and top-level functions. Fills `.module` body. Runs A1/A2 safety validation. |
 | `KoinDSLTransformer.kt` | Transforms `single<T>()` DSL calls. Uses `TransformContext` for state management. |
-| `KoinStartTransformer.kt` | Transforms `startKoin<MyApp>()` calls. |
+| `KoinStartTransformer.kt` | Transforms `startKoin<MyApp>()` calls. Runs A3 full-graph validation. |
 | `QualifierExtractor.kt` | Extracts qualifier annotations (`@Named`, `@Qualifier`). Used by both DSL and annotation processors. |
 | `LambdaBuilder.kt` | Creates lambda expressions with proper scope/parameter handling. |
 | `ScopeBlockBuilder.kt` | Builds `scope { }` DSL blocks for scoped definitions. |
+| `BindingRegistry.kt` | Compile-time safety validation engine. Matches requirements against provided types. |
+| `ParameterAnalyzer.kt` | Classifies constructor/function parameters for safety validation. |
+| `ConfigurationUtils.kt` | Shared `@Configuration` label extraction for A2/A3 validation. |
+| `AnnotationModels.kt` | Data models: `Definition` sealed class, `ModuleClass`, `DefinitionClass`, etc. |
 
 ### Cross-Phase
 

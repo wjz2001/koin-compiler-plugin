@@ -110,13 +110,19 @@ koinCompiler {
 
 ### 2.3 Compile-Time Dependency Validation
 Detect missing dependencies at compile time instead of runtime crashes.
-- [ ] Implement two-pass approach: collect bindings during IR, validate graph at end
-- [ ] Validate non-nullable parameters have definitions
-- [ ] Validate `@Named` qualifiers match
-- [ ] Validate scoped dependencies are in correct scope
-- [ ] Report clear error messages with source locations
-- [ ] Cross-module validation via hint functions
-- See [COMPILE_TIME_SAFETY.md](COMPILE_TIME_SAFETY.md) for detailed design
+- [x] Per-module validation (A1): local definitions + explicit includes
+- [x] Validate non-nullable parameters have definitions
+- [x] Validate `Lazy<T>` inner type is provided
+- [x] Validate `@Named`/`@Qualifier` qualifiers match (with hints for mismatches)
+- [x] Validate scoped dependencies are in correct scope
+- [x] Skip safe parameters: nullable, `@InjectedParam`, `@Property`, `List<T>`, defaults
+- [x] Clear error messages with module/parameter context
+- [x] Configuration group validation (A2): `@Configuration` sibling modules share definitions
+- [x] startKoin full-graph validation (A3): validates all modules assembled by `startKoin<T>()`
+- [ ] DSL validation (B): validate `single<T>()`, `factory<T>()` in hand-written modules
+- [ ] Cross-Gradle-module validation (C): definitions from dependency JARs via hint functions
+- [ ] Property validation (D): `@Property`/`@PropertyValue` matching
+- See [COMPILE_TIME_SAFETY.md](COMPILE_TIME_SAFETY.md) for detailed design and implementation
 
 ### 2.4 `@Monitor` Annotation Support
 Function interception for logging and performance capture:

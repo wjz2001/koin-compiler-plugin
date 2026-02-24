@@ -60,15 +60,15 @@ import org.jetbrains.kotlin.name.Name
 @Suppress("DEPRECATION", "DEPRECATION_ERROR")
 class KoinStartTransformer(
     private val context: IrPluginContext,
-    private val moduleFragment: IrModuleFragment
+    private val moduleFragment: IrModuleFragment,
+    private val annotationProcessor: KoinAnnotationProcessor? = null
 ) : IrElementTransformerVoid() {
 
     // Koin types
     private val koinModuleClassId = ClassId.topLevel(FqName("org.koin.core.module.Module"))
 
-    // Annotation FQNames
+    // Annotation FQName
     private val moduleFqName = FqName("org.koin.core.annotation.Module")
-    private val configurationFqName = FqName("org.koin.core.annotation.Configuration")
 
     // Hint package for cross-module discovery (label-specific function names)
     private val hintsPackage = KoinModuleFirGenerator.HINTS_PACKAGE
@@ -108,6 +108,11 @@ class KoinStartTransformer(
 
         // Get modules from @KoinApplication(modules = [...]) annotation
         val moduleClasses = extractModulesFromKoinApplicationAnnotation(appClass)
+
+        // A3: Validate the full assembled graph at the startKoin entry point
+        if (KoinPluginLogger.safetyChecksEnabled && moduleClasses.isNotEmpty() && annotationProcessor != null) {
+            validateFullGraph(appClass, moduleClasses)
+        }
 
         // Log interception (guard to avoid precomputation when logging is disabled)
         if (KoinPluginLogger.userLogsEnabled) {
@@ -380,9 +385,6 @@ class KoinStartTransformer(
     /**
      * Check if a class has @Module and @Configuration annotations with matching labels.
      * A module matches if it has ANY of the requested labels.
-     *
-     * @param declaration The class to check
-     * @param labels Configuration labels to match against
      */
     private fun hasConfigurationWithMatchingLabels(declaration: IrClass, labels: List<String>): Boolean {
         val hasModule = declaration.annotations.any {
@@ -390,50 +392,7 @@ class KoinStartTransformer(
         }
         if (!hasModule) return false
 
-        val configAnnotation = declaration.annotations.firstOrNull {
-            it.type.classFqName?.asString() == configurationFqName.asString()
-        } ?: return false
-
-        // Extract labels from @Configuration annotation
-        val moduleLabels = extractLabelsFromConfigurationAnnotation(configAnnotation)
-
-        // Check if any of the module's labels match the requested labels
-        return moduleLabels.any { it in labels }
-    }
-
-    /**
-     * Extract labels from @Configuration annotation in IR.
-     */
-    private fun extractLabelsFromConfigurationAnnotation(annotation: IrConstructorCall): List<String> {
-        val labels = mutableListOf<String>()
-
-        // @Configuration uses vararg value: String
-        val valueArg = annotation.getValueArgument(0)
-        when (valueArg) {
-            is IrVararg -> {
-                for (element in valueArg.elements) {
-                    when (element) {
-                        is IrConst -> {
-                            val value = element.value
-                            if (value is String) {
-                                labels.add(value)
-                            }
-                        }
-                        else -> {}
-                    }
-                }
-            }
-            is IrConst -> {
-                val value = valueArg.value
-                if (value is String) {
-                    labels.add(value)
-                }
-            }
-            else -> {}
-        }
-
-        // Default to "default" label if no labels specified
-        return labels.ifEmpty { listOf(KoinConfigurationRegistry.DEFAULT_LABEL) }
+        return extractConfigurationLabels(declaration).any { it in labels }
     }
 
     /**
@@ -444,6 +403,43 @@ class KoinStartTransformer(
             is IrClassReference -> (expression.classType.classifierOrNull as? IrClassSymbol)?.owner
             is IrGetClass -> (expression.argument.type.classifierOrNull as? IrClassSymbol)?.owner
             else -> null
+        }
+    }
+
+    /**
+     * A3: Validate the full assembled module graph at the startKoin entry point.
+     *
+     * Collects ALL definitions from ALL discovered modules and validates that
+     * every required dependency is satisfied somewhere in the combined graph.
+     */
+    private fun validateFullGraph(appClass: IrClass, allModuleIrClasses: List<IrClass>) {
+        val processor = annotationProcessor ?: return
+        val appName = appClass.name.asString()
+
+        // Collect definitions from all modules in the graph
+        val allDefinitions = mutableListOf<Definition>()
+        for (moduleIrClass in allModuleIrClasses) {
+            val moduleClass = processor.collectedModuleClasses.find {
+                it.irClass.fqNameWhenAvailable == moduleIrClass.fqNameWhenAvailable
+            }
+            if (moduleClass != null) {
+                allDefinitions.addAll(processor.getDefinitionsForModule(moduleClass))
+            }
+        }
+
+        if (allDefinitions.isEmpty()) return
+
+        KoinPluginLogger.debug { "  -> Full-graph validation for $appName: ${allDefinitions.size} definitions from ${allModuleIrClasses.size} modules" }
+
+        val bindingRegistry = BindingRegistry()
+        val errorCount = bindingRegistry.validateModule(
+            "$appName (startKoin)",
+            allDefinitions,
+            processor.parameterAnalyzer,
+            processor.qualifierExtractor
+        )
+        if (errorCount > 0) {
+            KoinPluginLogger.debug { "  -> Full-graph validation found $errorCount errors" }
         }
     }
 

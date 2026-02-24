@@ -31,7 +31,7 @@ class KoinIrExtension : IrGenerationExtension {
         // Transforms: startKoin<MyApp> { printLogger() }
         // Into: startKoin { printLogger(); modules(listOf(Module1().module, ...)) }
         KoinPluginLogger.debug { "Phase 3: Transforming startKoin calls" }
-        val startKoinTransformer = KoinStartTransformer(pluginContext, moduleFragment)
+        val startKoinTransformer = KoinStartTransformer(pluginContext, moduleFragment, annotationProcessor)
         moduleFragment.transform(startKoinTransformer, null)
 
         // Phase 4: Transform @Monitor annotated functions
