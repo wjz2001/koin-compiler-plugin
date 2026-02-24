@@ -124,13 +124,13 @@ Detect missing dependencies at compile time instead of runtime crashes.
 - [ ] Property validation (D): `@Property`/`@PropertyValue` matching
 - See [COMPILE_TIME_SAFETY.md](COMPILE_TIME_SAFETY.md) for detailed design and implementation
 
-### 2.4 `@Monitor` Annotation Support
+### 2.4 `@Monitor` Annotation Support ✅
 Function interception for logging and performance capture:
-- [ ] `@Monitor` annotation on class or function
-- [ ] Generate wrapper code to intercept function calls
-- [ ] Log function entry/exit with parameters
-- [ ] Capture execution time and performance metrics
-- [ ] Integration with Koin's logging/monitoring API
+- [x] `@Monitor` annotation on class or function
+- [x] Generate wrapper code to intercept function calls
+- [x] Log function entry/exit with parameters
+- [x] Capture execution time and performance metrics
+- [x] Integration with Koin's logging/monitoring API
 
 ```kotlin
 @Monitor
