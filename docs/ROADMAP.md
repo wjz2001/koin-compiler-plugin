@@ -119,8 +119,13 @@ Detect missing dependencies at compile time instead of runtime crashes.
 - [x] Clear error messages with module/parameter context
 - [x] Configuration group validation (A2): `@Configuration` sibling modules share definitions
 - [x] startKoin full-graph validation (A3): validates all modules assembled by `startKoin<T>()`
+- [x] Cross-Gradle-module validation (C): definitions from dependency JARs via hint functions
+- [ ] Cross-module function hint metadata (C2): encode additional metadata in hint parameter names
+  - [ ] Qualifier propagation: `@Named`/`@Qualifier` (currently always `null`)
+  - [ ] Scope propagation: `@Scope(MyScope::class)` (currently appears as root-scope)
+  - [ ] Bindings propagation: explicit `@Bind(Interface::class)` (currently empty)
+  - [ ] Package filtering uses return type's package, not function's package
 - [ ] DSL validation (B): validate `single<T>()`, `factory<T>()` in hand-written modules
-- [ ] Cross-Gradle-module validation (C): definitions from dependency JARs via hint functions
 - [ ] Property validation (D): `@Property`/`@PropertyValue` matching
 - See [COMPILE_TIME_SAFETY.md](COMPILE_TIME_SAFETY.md) for detailed design and implementation
 

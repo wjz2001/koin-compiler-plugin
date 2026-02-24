@@ -631,6 +631,7 @@ class KoinAnnotationProcessor(
                         is Definition.ClassDef -> def.irClass.name.asString()
                         is Definition.FunctionDef -> "${def.irFunction.name}() -> ${def.returnTypeClass.name}"
                         is Definition.TopLevelFunctionDef -> "${def.irFunction.name}() -> ${def.returnTypeClass.name}"
+                        is Definition.ExternalFunctionDef -> "(external) -> ${def.returnTypeClass.name}"
                     }
                     val defType = def.definitionType.name.lowercase()
                     val scopeClass = def.scopeClass  // Local vals for smart cast
@@ -966,6 +967,26 @@ class KoinAnnotationProcessor(
             )
         })
 
+        // Cross-module top-level function definitions from hints
+        // These are provider-only (requirements validated in source module)
+        if (moduleClass.hasComponentScan) {
+            val scanPackages = moduleClass.scanPackages.ifEmpty {
+                listOf(moduleClass.irClass.packageFqName?.asString() ?: "")
+            }
+            val crossModuleFunctionDefs = discoverFunctionDefinitionsFromHints(scanPackages)
+            if (crossModuleFunctionDefs.isNotEmpty()) {
+                KoinPluginLogger.debug { "  Found ${crossModuleFunctionDefs.size} cross-module function definitions" }
+                if (KoinPluginLogger.userLogsEnabled) {
+                    val moduleName = moduleClass.irClass.name.asString()
+                    KoinPluginLogger.user { "  $moduleName: Cross-module scan found ${crossModuleFunctionDefs.size} function definitions:" }
+                    crossModuleFunctionDefs.forEach { def ->
+                        KoinPluginLogger.user { "    @${def.definitionType.name} providing ${def.returnTypeClass.name}" }
+                    }
+                }
+                definitions.addAll(crossModuleFunctionDefs)
+            }
+        }
+
         return definitions
     }
 
@@ -1110,6 +1131,68 @@ class KoinAnnotationProcessor(
     }
 
     /**
+     * Discover top-level function definitions from hint functions in dependencies.
+     * Used for cross-module @ComponentScan - discovers @Singleton fun provide...() etc. from other Gradle modules.
+     * Creates ExternalFunctionDef instances (provider-only, no requirements to validate).
+     *
+     * Note: Package filtering is based on the function's **return type** package, not the function's
+     * own package. This is because hints encode the return type (what the function provides).
+     * If the function returns a type from a different package than the function itself, the scan
+     * package must match the return type's package.
+     */
+    private fun discoverFunctionDefinitionsFromHints(scanPackages: List<String>): List<Definition.ExternalFunctionDef> {
+        val discovered = mutableListOf<Definition.ExternalFunctionDef>()
+
+        for (defType in KoinModuleFirGenerator.ALL_DEFINITION_TYPES) {
+            val functionName = KoinModuleFirGenerator.definitionFunctionHintFunctionName(defType)
+            val hintFunctions = context.referenceFunctions(
+                CallableId(KoinModuleFirGenerator.HINTS_PACKAGE, functionName)
+            )
+
+            KoinPluginLogger.debug { "  Querying function hints: $functionName -> ${hintFunctions.toList().size} functions" }
+
+            for (hintFuncSymbol in hintFunctions) {
+                val hintFunc = hintFuncSymbol.owner
+                // The first parameter type is the return type of the original function (what it provides)
+                val paramType = hintFunc.valueParameters.firstOrNull()?.type ?: continue
+                val returnTypeClass = (paramType.classifierOrNull as? IrClassSymbol)?.owner ?: continue
+
+                // Check if the class's package matches scan packages
+                val defPackage = returnTypeClass.packageFqName?.asString() ?: continue
+                val matchesScanPackage = scanPackages.any { scanPkg ->
+                    defPackage == scanPkg || defPackage.startsWith("$scanPkg.")
+                }
+
+                if (!matchesScanPackage) continue
+
+                // Skip if we already have this type in local top-level function definitions
+                if (definitionTopLevelFunctions.any { it.returnTypeClass.fqNameWhenAvailable == returnTypeClass.fqNameWhenAvailable }) {
+                    KoinPluginLogger.debug { "    Skipping ${returnTypeClass.name} - already in local function definitions" }
+                    continue
+                }
+
+                val definitionType = when (defType) {
+                    KoinModuleFirGenerator.DEF_TYPE_SINGLE -> DefinitionType.SINGLE
+                    KoinModuleFirGenerator.DEF_TYPE_FACTORY -> DefinitionType.FACTORY
+                    KoinModuleFirGenerator.DEF_TYPE_SCOPED -> DefinitionType.SCOPED
+                    KoinModuleFirGenerator.DEF_TYPE_VIEWMODEL -> DefinitionType.VIEW_MODEL
+                    KoinModuleFirGenerator.DEF_TYPE_WORKER -> DefinitionType.WORKER
+                    else -> continue
+                }
+
+                KoinPluginLogger.debug { "    Discovered function def: ${returnTypeClass.name} ($defType) from package $defPackage" }
+
+                discovered.add(Definition.ExternalFunctionDef(
+                    definitionType = definitionType,
+                    returnTypeClass = returnTypeClass
+                ))
+            }
+        }
+
+        return discovered
+    }
+
+    /**
      * Get scope archetype from class annotations (for cross-module discovery).
      */
     private fun getScopeArchetypeFromClass(irClass: IrClass): ScopeArchetype? {
@@ -1193,6 +1276,7 @@ class KoinAnnotationProcessor(
                 is Definition.ClassDef -> definitionCallBuilder.buildClassDefinitionCall(definition, moduleReceiverParam, lambdaFunction, lambdaBuilder)
                 is Definition.FunctionDef -> definitionCallBuilder.buildFunctionDefinitionCall(definition, moduleClass, moduleReceiverParam, lambdaFunction, lambdaBuilder, parentFunction)
                 is Definition.TopLevelFunctionDef -> definitionCallBuilder.buildTopLevelFunctionDefinitionCall(definition, moduleReceiverParam, lambdaFunction, lambdaBuilder)
+                is Definition.ExternalFunctionDef -> continue // Provider-only, no code to generate
             }
             if (definitionCall != null) {
                 statements.add(definitionCall)
@@ -1315,6 +1399,7 @@ class KoinAnnotationProcessor(
                 is Definition.ClassDef -> definitionCallBuilder.buildScopedClassDefinitionCall(definition, scopeDslReceiver, scopeLambdaFunction, scopeLambdaBuilder)
                 is Definition.FunctionDef -> definitionCallBuilder.buildScopedFunctionDefinitionCall(definition, moduleClass, scopeDslReceiver, scopeLambdaFunction, scopeLambdaBuilder, parentFunction)
                 is Definition.TopLevelFunctionDef -> definitionCallBuilder.buildScopedTopLevelFunctionDefinitionCall(definition, scopeDslReceiver, scopeLambdaFunction, scopeLambdaBuilder)
+                is Definition.ExternalFunctionDef -> continue // Provider-only, no code to generate
             }
             if (definitionCall != null) {
                 statements.add(definitionCall)

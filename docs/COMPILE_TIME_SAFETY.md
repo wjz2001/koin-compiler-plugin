@@ -346,6 +346,19 @@ Each diagnostic test has `.fir.txt` (FIR golden file) and `.errors.txt` (error m
 | A1 | Per-module (local + includes) | Done |
 | A2 | `@Configuration` group siblings | Done |
 | A3 | `startKoin<T>` full graph | Done |
+| C | Cross-Gradle-module (definitions from dependency JARs via hints) | Done |
+| C2 | Cross-module function hint metadata (qualifier, scope, bindings) | Not started |
 | B | DSL calls (`single<T>()`, `factory<T>()`) | Not started |
-| C | Cross-Gradle-module (definitions from dependency JARs via hints) | Not started |
 | D | `@Property`/`@PropertyValue` matching | Not started |
+
+### Phase C: Known Limitations
+
+Cross-module **class** definitions have full metadata (annotations are available from JAR metadata). Cross-module **top-level function** definitions use `ExternalFunctionDef` which is provider-only — the hint carries only the return type. The following metadata is not yet propagated:
+
+| Metadata | Effect | Consequence |
+|----------|--------|-------------|
+| `@Named`/`@Qualifier` | Always `null` | Qualified dependency may falsely pass (matches unqualified provider) |
+| `@Scope(MyScope::class)` | Always root-scope | Scoped function appears visible everywhere (false positive) |
+| `@Bind(Interface::class)` | Always empty | Consumers depending on the bound interface won't find it |
+
+Additionally, package filtering for function hints is based on the **return type's package**, not the function's own package. If `@Singleton fun provideRepo(): Repository` is in package `infra` but `Repository` is in package `domain`, the `@ComponentScan` must match `domain`.

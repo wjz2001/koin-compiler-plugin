@@ -45,8 +45,10 @@ class KoinHintTransformer(
             KoinModuleFirGenerator.labelFromHintFunctionName(functionName) != null
         val isDefinitionHint = parentPackage == hintsPackage &&
             KoinModuleFirGenerator.definitionTypeFromHintFunctionName(functionName) != null
+        val isFunctionDefinitionHint = parentPackage == hintsPackage &&
+            KoinModuleFirGenerator.definitionTypeFromFunctionHintName(functionName) != null
 
-        if ((isConfigurationHint || isDefinitionHint) && declaration.body == null) {
+        if ((isConfigurationHint || isDefinitionHint || isFunctionDefinitionHint) && declaration.body == null) {
             // Generate body for hint function: error("Stub!")
             declaration.body = generateHintFunctionBody(declaration)
 

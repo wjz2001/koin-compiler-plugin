@@ -276,6 +276,7 @@ class BindingRegistry {
             is Definition.ClassDef -> qualifierExtractor.extractFromClass(def.irClass)
             is Definition.FunctionDef -> qualifierExtractor.extractFromDeclaration(def.irFunction)
             is Definition.TopLevelFunctionDef -> qualifierExtractor.extractFromDeclaration(def.irFunction)
+            is Definition.ExternalFunctionDef -> null // TODO: propagate qualifier via hint (e.g. extra parameter or annotation encoding)
         }
     }
 
@@ -287,6 +288,7 @@ class BindingRegistry {
             }
             is Definition.FunctionDef -> analyzer.analyzeFunction(def.irFunction)
             is Definition.TopLevelFunctionDef -> analyzer.analyzeFunction(def.irFunction)
+            is Definition.ExternalFunctionDef -> emptyList() // Provider-only, requirements validated in source module
         }
     }
 
@@ -312,6 +314,8 @@ class BindingRegistry {
             is Definition.FunctionDef -> "${def.moduleInstance.name}.${def.irFunction.name}()"
             is Definition.TopLevelFunctionDef -> def.irFunction.fqNameWhenAvailable?.asString()
                 ?: def.irFunction.name.asString()
+            is Definition.ExternalFunctionDef -> def.returnTypeClass.fqNameWhenAvailable?.asString()
+                ?: def.returnTypeClass.name.asString()
         }
     }
 

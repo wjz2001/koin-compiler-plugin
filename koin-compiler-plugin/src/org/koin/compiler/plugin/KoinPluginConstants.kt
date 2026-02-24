@@ -68,6 +68,9 @@ object KoinPluginConstants {
     /** Prefix for definition hint functions (e.g., definition_single). */
     const val DEFINITION_HINT_PREFIX = "definition_"
 
+    /** Prefix for function definition hint functions (e.g., definition_function_single). */
+    const val DEFINITION_FUNCTION_HINT_PREFIX = "definition_function_"
+
     /** Default label for @Configuration modules. */
     const val DEFAULT_LABEL = "default"
 

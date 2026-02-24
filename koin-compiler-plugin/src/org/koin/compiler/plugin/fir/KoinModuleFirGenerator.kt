@@ -114,6 +114,7 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
         val HINTS_PACKAGE = FqName(KoinPluginConstants.HINTS_PACKAGE)
         private const val HINT_FUNCTION_PREFIX = KoinPluginConstants.HINT_FUNCTION_PREFIX
         private const val DEFINITION_HINT_PREFIX = KoinPluginConstants.DEFINITION_HINT_PREFIX
+        private const val DEFINITION_FUNCTION_HINT_PREFIX = KoinPluginConstants.DEFINITION_FUNCTION_HINT_PREFIX
 
         /**
          * Get the hint function name for a specific label.
@@ -146,8 +147,29 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
          * Returns null if the function name doesn't match the definition hint pattern.
          */
         fun definitionTypeFromHintFunctionName(functionName: String): String? {
+            // Don't match definition_function_* prefix (more specific prefix check first)
+            if (functionName.startsWith(DEFINITION_FUNCTION_HINT_PREFIX)) return null
             return if (functionName.startsWith(DEFINITION_HINT_PREFIX)) {
                 functionName.removePrefix(DEFINITION_HINT_PREFIX)
+            } else {
+                null
+            }
+        }
+
+        /**
+         * Get the hint function name for a top-level function definition type.
+         * Example: "single" -> "definition_function_single"
+         */
+        fun definitionFunctionHintFunctionName(type: String): Name = Name.identifier("$DEFINITION_FUNCTION_HINT_PREFIX$type")
+
+        /**
+         * Extract definition type from a function hint name.
+         * Example: "definition_function_single" -> "single"
+         * Returns null if the function name doesn't match the function hint pattern.
+         */
+        fun definitionTypeFromFunctionHintName(functionName: String): String? {
+            return if (functionName.startsWith(DEFINITION_FUNCTION_HINT_PREFIX)) {
+                functionName.removePrefix(DEFINITION_FUNCTION_HINT_PREFIX)
             } else {
                 null
             }
@@ -211,6 +233,18 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
         val classSymbol: FirClassSymbol<*>,
         val definitionType: String, // single, factory, scoped, viewmodel, worker
         val containingFileName: String?
+    )
+
+    /**
+     * Holds a top-level function with a definition annotation and its return type.
+     * Used for cross-module discovery via function hint functions.
+     * The return type ClassId is what this function provides to the DI container.
+     */
+    private data class DefinitionFunctionInfo(
+        val functionSymbol: FirNamedFunctionSymbol,
+        val definitionType: String, // single, factory, scoped, viewmodel, worker
+        val containingFileName: String?,
+        val returnTypeClassId: ClassId
     )
 
     // Check if we're compiling for a KLIB-based target (Native, JS, or Wasm)
@@ -551,6 +585,67 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
         definitions
     }
 
+    // Cache of top-level functions with definition annotations for cross-module discovery
+    // Only includes "orphan" functions NOT covered by any local @Module's @ComponentScan
+    // These generate function hint functions in org.koin.plugin.hints package
+    private val definitionFunctionInfos: List<DefinitionFunctionInfo> by lazy {
+        val provider = session.predicateBasedProvider
+        val functions = mutableListOf<DefinitionFunctionInfo>()
+
+        fun collectFunctions(predicate: LookupPredicate, defType: String) {
+            provider.getSymbolsByPredicate(predicate)
+                .filterIsInstance<FirNamedFunctionSymbol>()
+                .forEach { functionSymbol ->
+                    // Skip functions inside classes (only top-level)
+                    val callableId = functionSymbol.callableId
+                    if (callableId.classId != null) return@forEach
+
+                    // Get return type ClassId
+                    val returnTypeClassId = functionSymbol.resolvedReturnTypeRef.coneType.classId ?: return@forEach
+
+                    // Skip Unit return types (not useful as DI providers)
+                    if (returnTypeClassId.asSingleFqName().asString() == "kotlin.Unit") return@forEach
+
+                    val packageName = callableId.packageName.asString()
+                    if (isCoveredByLocalScan(packageName)) {
+                        log { "  Skipping @$defType function: ${callableId.callableName} - covered by local @ComponentScan" }
+                        return@forEach
+                    }
+
+                    // Get containing file name
+                    val source = functionSymbol.fir.source
+                    val containingFileName = when (source) {
+                        is KtPsiSourceElement -> source.psi.containingFile?.name
+                        else -> {
+                            val isRealSource = source?.kind?.toString()?.contains("RealSourceElementKind") == true
+                            if (isRealSource) {
+                                // Use deterministic synthetic file name based on function's package + name
+                                val syntheticName = "${packageName.replace('.', '_')}_${callableId.callableName}_FunctionDefinition.kt"
+                                syntheticName
+                            } else null
+                        }
+                    }
+
+                    if (containingFileName != null) {
+                        log { "  Found @$defType function: ${callableId.callableName}() -> $returnTypeClassId (orphan, needs hint)" }
+                        logUser { "Exporting @$defType function ${callableId.callableName}() for cross-module discovery" }
+                        functions.add(DefinitionFunctionInfo(functionSymbol, defType, containingFileName, returnTypeClassId))
+                    }
+                }
+        }
+
+        log { "Collecting orphan definition functions for cross-module discovery..." }
+        collectFunctions(singletonPredicate, DEF_TYPE_SINGLE)
+        collectFunctions(singlePredicate, DEF_TYPE_SINGLE)
+        collectFunctions(factoryPredicate, DEF_TYPE_FACTORY)
+        collectFunctions(scopedPredicate, DEF_TYPE_SCOPED)
+        collectFunctions(viewModelPredicate, DEF_TYPE_VIEWMODEL)
+        collectFunctions(workerPredicate, DEF_TYPE_WORKER)
+
+        log { "Found ${functions.size} orphan definition functions (need hints for cross-module discovery)" }
+        functions
+    }
+
     // Predicate to find ALL classes that might have @Inject constructor
     // This predicate matches ANY class - we filter in code for actual @Inject constructors
     // This is necessary because FIR predicates can't detect constructor annotations directly
@@ -848,18 +943,14 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
         // @Module classes (e.g., test source sets discovering modules from main source sets)
         callableIds.add(CallableId(HINTS_PACKAGE, hintFunctionNameForLabel(KoinConfigurationRegistry.DEFAULT_LABEL)))
 
-        // Generate hint functions for definition classes (cross-module @ComponentScan discovery)
-        // One function per definition type that has classes
-        val definitionTypesCovered = definitionClassInfos.map { it.definitionType }.toSet()
-        for (defType in definitionTypesCovered) {
-            callableIds.add(CallableId(HINTS_PACKAGE, definitionHintFunctionName(defType)))
-        }
+        // Generate hint functions for definition classes and functions (cross-module discovery)
         // Always include all definition types to trigger discovery from dependencies
         for (defType in ALL_DEFINITION_TYPES) {
             callableIds.add(CallableId(HINTS_PACKAGE, definitionHintFunctionName(defType)))
+            callableIds.add(CallableId(HINTS_PACKAGE, definitionFunctionHintFunctionName(defType)))
         }
 
-        log { "getTopLevelCallableIds() returning ${callableIds.size} callables (${moduleClasses.size} modules, labels=$allLabels, definitions=${definitionClassInfos.size})" }
+        log { "getTopLevelCallableIds() returning ${callableIds.size} callables (${moduleClasses.size} modules, labels=$allLabels, definitions=${definitionClassInfos.size}, functionDefs=${definitionFunctionInfos.size})" }
         return callableIds
     }
 
@@ -1008,6 +1099,42 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
                     }.symbol
                 }
             }
+
+            // Generate function definition hint functions for cross-module top-level function discovery
+            // Function name format: definition_function_<type> (e.g., definition_function_single)
+            // The hint carries the return type as the parameter type (what the function provides)
+            val funcDefType = definitionTypeFromFunctionHintName(callableId.callableName.asString())
+            if (funcDefType != null) {
+                val matchingFunctions = definitionFunctionInfos.filter { it.definitionType == funcDefType }
+                log { "generateFunctions: Generating function definition hints for type '$funcDefType', ${matchingFunctions.size} functions" }
+
+                if (isKlibTarget) {
+                    log { "generateFunctions: Skipping function definition hints on KLIB target" }
+                    return emptyList()
+                }
+
+                return matchingFunctions.mapNotNull { funcInfo ->
+                    val containingFile = funcInfo.containingFileName
+                    if (containingFile == null) {
+                        log { "  -> Skipping function definition hint for ${funcInfo.functionSymbol.callableId} (no source file)" }
+                        return@mapNotNull null
+                    }
+
+                    // Build the return type as a class type for the hint parameter
+                    val returnClassType = funcInfo.returnTypeClassId.constructClassLikeType(emptyArray(), false)
+
+                    log { "  -> Generating function definition hint for ${funcInfo.functionSymbol.callableId.callableName}() -> ${funcInfo.returnTypeClassId} (type=$funcDefType) in file $containingFile" }
+
+                    createTopLevelFunction(
+                        Key,
+                        callableId,
+                        session.builtinTypes.unitType.coneType,
+                        containingFileName = containingFile
+                    ) {
+                        valueParameter(Name.identifier("contributed"), returnClassType)
+                    }.symbol
+                }
+            }
         }
 
         return emptyList()
@@ -1017,7 +1144,7 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
      * Claim ownership of the hints package for generated hint functions.
      */
     override fun hasPackage(packageFqName: FqName): Boolean {
-        if (packageFqName == HINTS_PACKAGE && (configurationModules.isNotEmpty() || definitionClassInfos.isNotEmpty())) {
+        if (packageFqName == HINTS_PACKAGE && (configurationModules.isNotEmpty() || definitionClassInfos.isNotEmpty() || definitionFunctionInfos.isNotEmpty())) {
             return true
         }
         return super.hasPackage(packageFqName)
