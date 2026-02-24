@@ -7,8 +7,6 @@ Detect missing dependencies at compile time instead of runtime crashes.
 Without compile-time safety, a missing dependency only surfaces at runtime:
 
 ```kotlin
-class MyService(val repo: Repository)
-
 @Module @ComponentScan
 class AppModule
 
@@ -112,12 +110,11 @@ For A3 validation, the application name is used:
 
 ```kotlin
 koinCompiler {
-    // Enable/disable safety checks (default: enabled when userLogs or debugLogs is true)
-    userLogs = true
+    safetyChecks = true   // Enable/disable compile-time safety checks (default: true)
 }
 ```
 
-Safety checks are gated by `KoinPluginLogger.safetyChecksEnabled`.
+Safety checks are gated by `KoinPluginLogger.safetyChecksEnabled`, controlled by the `safetyChecks` Gradle option.
 
 ---
 
@@ -149,7 +146,7 @@ IR Phase 3: KoinStartTransformer
 
 ### BindingRegistry (`ir/BindingRegistry.kt`)
 
-The validation engine. Stateless — create a new instance per validation scope.
+The validation engine. `validateModule()` is self-contained — it builds provided types from the definitions passed in, so it can be called per-module or on a combined graph.
 
 **Data types:**
 

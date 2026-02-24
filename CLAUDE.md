@@ -166,6 +166,7 @@ koinCompiler {
     debugLogs = true          // Internal processing logs (verbose)
     dslSafetyChecks = true    // Validates create() is the only instruction in lambda (default: true)
     skipDefaultValues = true  // Skip injection for parameters with default values (default: true)
+    safetyChecks = true       // Compile-time dependency validation (default: true)
 }
 ```
 
