@@ -24,6 +24,7 @@ import org.jetbrains.kotlin.ir.util.defaultType
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.Name
 import org.koin.compiler.plugin.KoinAnnotationFqNames
+import org.koin.compiler.plugin.KoinPluginLogger
 
 /**
  * Builds Koin definition lambda expressions for constructor, function, and top-level function definitions.
@@ -90,9 +91,13 @@ class LambdaBuilder(
             paramsParam: IrValueParameter
         ) -> IrExpression
     ): IrExpression {
-        val scopeClassLocal = scopeClass ?: return builder.irNull()
-        val paramsHolderClass = parametersHolderClass ?: return builder.irNull()
-        val func2Class = function2Class ?: return builder.irNull()
+        val scopeClassLocal = scopeClass
+        val paramsHolderClass = parametersHolderClass
+        val func2Class = function2Class
+        if (scopeClassLocal == null || paramsHolderClass == null || func2Class == null) {
+            KoinPluginLogger.debug { "Koin core classes not found on classpath (Scope=${scopeClassLocal != null}, ParametersHolder=${paramsHolderClass != null}, Function2=${func2Class != null})" }
+            return builder.irNull()
+        }
 
         // Create the lambda function
         val lambdaFunction = context.irFactory.createSimpleFunction(

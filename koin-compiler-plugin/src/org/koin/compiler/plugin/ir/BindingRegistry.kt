@@ -112,18 +112,22 @@ class BindingRegistry {
      * within the set of definitions visible to this module.
      *
      * @param moduleName Name of the module (for error messages)
-     * @param definitions All definitions collected for this module
+     * @param definitions All definitions collected for this module (used to build provided types)
      * @param parameterAnalyzer Analyzer for extracting parameter requirements
      * @param qualifierExtractor Extractor for reading qualifier annotations from definitions
+     * @param definitionsToValidate Subset of definitions whose requirements should be checked.
+     *   If null, all definitions are validated. Use this to skip re-validating definitions
+     *   that were already checked at A2 while still including them as providers.
      * @return Number of errors found
      */
     fun validateModule(
         moduleName: String,
         definitions: List<Definition>,
         parameterAnalyzer: ParameterAnalyzer,
-        qualifierExtractor: QualifierExtractor
+        qualifierExtractor: QualifierExtractor,
+        definitionsToValidate: List<Definition>? = null
     ): Int {
-        // Build the set of provided types for this module
+        // Build the set of provided types from ALL definitions
         val providedTypes = mutableSetOf<ProviderKey>()
 
         for (def in definitions) {
@@ -144,11 +148,14 @@ class BindingRegistry {
             }
         }
 
-        KoinPluginLogger.debug { "  Safety check for $moduleName: ${providedTypes.size} provided types, ${definitions.size} definitions" }
+        // Only validate requirements from the specified subset (or all if not specified)
+        val toValidate = definitionsToValidate ?: definitions
+
+        KoinPluginLogger.debug { "  Safety check for $moduleName: ${providedTypes.size} provided types, ${toValidate.size}/${definitions.size} definitions to validate" }
 
         // Validate each definition's requirements
         var errorCount = 0
-        for (def in definitions) {
+        for (def in toValidate) {
             val requirements = extractRequirements(def, parameterAnalyzer)
             val defName = definitionDisplayName(def)
             val defScopeClass = def.scopeClass

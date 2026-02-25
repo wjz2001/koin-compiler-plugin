@@ -90,14 +90,25 @@ class ScopeBlockBuilder(
         statementsBuilder: (scopeDslReceiver: IrValueParameter, parentFunction: IrFunction, lambdaBuilder: DeclarationIrBuilder) -> List<IrStatement>
     ): IrExpression? {
         // Find the scope(qualifier, block) function from ModuleExt.kt
-        val scopeDslFunction = findScopeFunction() ?: return null
+        val scopeDslFunction = findScopeFunction()
+        if (scopeDslFunction == null) {
+            KoinPluginLogger.debug { "scope() function not found - scope block for ${scopeClass.name} skipped" }
+            return null
+        }
 
         // Create the scope lambda and call
         val scopeLambdaResult = createScopeLambda(parentLambdaFunction, statementsBuilder)
-            ?: return null
+        if (scopeLambdaResult == null) {
+            KoinPluginLogger.debug { "Failed to create scope lambda for ${scopeClass.name} - ScopeDSL class missing" }
+            return null
+        }
 
         // Create qualifier from scope class: typeQualifier<ScopeClass>()
-        val qualifierCall = createTypeQualifier(scopeClass, builder) ?: return null
+        val qualifierCall = createTypeQualifier(scopeClass, builder)
+        if (qualifierCall == null) {
+            KoinPluginLogger.debug { "Failed to create type qualifier for ${scopeClass.name}" }
+            return null
+        }
 
         return builder.irCall(scopeDslFunction.symbol).apply {
             extensionReceiver = builder.irGet(moduleReceiver)

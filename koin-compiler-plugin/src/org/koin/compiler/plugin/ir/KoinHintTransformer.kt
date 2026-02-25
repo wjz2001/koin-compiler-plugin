@@ -13,6 +13,7 @@ import org.jetbrains.kotlin.ir.visitors.IrElementTransformerVoid
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
+import org.koin.compiler.plugin.KoinPluginLogger
 import org.koin.compiler.plugin.fir.KoinModuleFirGenerator
 
 /**
@@ -55,6 +56,7 @@ class KoinHintTransformer(
             // CRITICAL: Register for downstream visibility
             // This makes the hint function visible in compiled metadata
             context.metadataDeclarationRegistrar.registerFunctionAsMetadataVisible(declaration)
+            KoinPluginLogger.debug { "Registered hint: $functionName" }
         }
         return declaration
     }

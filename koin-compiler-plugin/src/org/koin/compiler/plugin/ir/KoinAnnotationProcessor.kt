@@ -1240,34 +1240,30 @@ class KoinAnnotationProcessor(
             ))
         }
 
-        // 2. Check if the module has @ComponentScan (registered by FIR in same compilation unit).
-        //    If no scan packages registered, the module either has no @ComponentScan or is from
-        //    a different compilation unit. In either case, its function defs are all we can get
-        //    and that's complete for a function-only module.
-        val registeredScanPackages = KoinConfigurationRegistry.getScanPackages(moduleFqName)
-        if (registeredScanPackages != null) {
-            // Module has @ComponentScan — discover scanned definitions from hints
-            val effectiveScanPackages = registeredScanPackages.ifEmpty {
+        // 2. Check if the module has @ComponentScan — if so, try to discover scanned definitions
+        //    from hints. Note: FIR skips generating hints for classes covered by local @ComponentScan
+        //    ("covered by local scan"), so cross-module discovery via hints is best-effort.
+        val hasComponentScan = moduleIrClass.annotations.any {
+            it.type.classFqName?.asString() == "org.koin.core.annotation.ComponentScan"
+        }
+        if (hasComponentScan) {
+            // Try to discover scanned definitions from hints (best-effort)
+            val scanPackages = KoinConfigurationRegistry.getScanPackages(moduleFqName)
+            val effectiveScanPackages = scanPackages?.ifEmpty {
                 listOf(moduleIrClass.packageFqName?.asString() ?: "")
-            }
+            } ?: listOf(moduleIrClass.packageFqName?.asString() ?: "")
             definitions.addAll(discoverClassDefinitionsFromHints(effectiveScanPackages))
             definitions.addAll(discoverFunctionDefinitionsFromHints(effectiveScanPackages))
         }
 
         if (definitions.isNotEmpty()) {
-            KoinPluginLogger.debug { "    -> Found ${definitions.size} definitions from $moduleFqName (hasComponentScan=${registeredScanPackages != null})" }
+            KoinPluginLogger.debug { "    -> Found ${definitions.size} definitions from $moduleFqName (hasComponentScan=$hasComponentScan)" }
         }
 
-        // Complete if we could determine the module's shape:
-        // - registeredScanPackages != null → FIR registered this module's @ComponentScan in the current
-        //   compilation, so we know its scan packages and used hints to discover scanned definitions.
-        // - registeredScanPackages == null → Either the module has no @ComponentScan (function-only,
-        //   fully resolved from JAR), OR it's from a different Gradle module compilation and we can't
-        //   tell if it has @ComponentScan. We check the @ComponentScan annotation directly on the class.
-        val hasComponentScan = moduleIrClass.annotations.any {
-            it.type.classFqName?.asString() == "org.koin.core.annotation.ComponentScan"
-        }
-        val isComplete = registeredScanPackages != null || !hasComponentScan
+        // A @Module without @ComponentScan only has function definitions — fully resolvable from JAR.
+        // A @Module with @ComponentScan also gathers scanned classes, but FIR doesn't generate hints
+        // for classes covered by local @ComponentScan, so we can't fully discover them cross-module.
+        val isComplete = !hasComponentScan
         return DependencyModuleResult(definitions, isComplete)
     }
 

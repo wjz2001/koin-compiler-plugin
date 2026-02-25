@@ -12,7 +12,7 @@ import org.koin.compiler.plugin.KoinPluginLogger
  * - **A2 (per-module)**: Each @Configuration module's definitions are validated against
  *   its own definitions + included modules + @Configuration sibling modules.
  * - **A3 (full-graph)**: All definitions from all modules assembled at startKoin<T>()
- *   are validated together.
+ *   are validated together — but only for modules not already validated at A2.
  *
  * The actual matching logic lives in [BindingRegistry]. This class handles the
  * orchestration: deciding what to validate, collecting cross-module definitions,
@@ -23,6 +23,9 @@ class CompileSafetyValidator(
 ) {
     private val parameterAnalyzer = ParameterAnalyzer(qualifierExtractor)
     private val bindingRegistry = BindingRegistry()
+
+    /** FQNames of modules whose definitions were already validated at A2. */
+    private val validatedModuleFqNames = mutableSetOf<String>()
 
     /**
      * A2: Validate a single module's definitions against visible dependencies.
@@ -49,6 +52,7 @@ class CompileSafetyValidator(
         collectDefinitionsFromDependencyModule: (String) -> DependencyModuleResult
     ) {
         val moduleName = moduleClass.irClass.name.asString()
+        val moduleFqName = moduleClass.irClass.fqNameWhenAvailable?.asString()
         val isConfigurationModule = hasConfigurationAnnotation(moduleClass.irClass)
 
         // Non-@Configuration modules that discover cross-module definitions (from hints)
@@ -115,6 +119,10 @@ class CompileSafetyValidator(
         // validation (A3: startKoin<T>) will catch real missing dependencies.
         if (!hasUnresolvableSiblings) {
             bindingRegistry.validateModule(moduleName, allVisibleDefinitions, parameterAnalyzer, qualifierExtractor)
+            // Track this module as validated so A3 won't re-check its definitions
+            if (moduleFqName != null) {
+                validatedModuleFqNames.add(moduleFqName)
+            }
         } else {
             KoinPluginLogger.debug { "  Safety check for $moduleName: deferred to A3 (cross-module siblings not fully resolvable)" }
         }
@@ -125,6 +133,7 @@ class CompileSafetyValidator(
      *
      * Collects ALL definitions from ALL discovered modules and validates that
      * every required dependency is satisfied somewhere in the combined graph.
+     * Skips re-validating definitions from modules already validated at A2.
      *
      * @param appName Application class name (for error messages)
      * @param allModuleIrClasses All module IrClasses discovered for this startKoin call
@@ -140,18 +149,28 @@ class CompileSafetyValidator(
         getDefinitionsForDependencyModule: (String) -> DependencyModuleResult
     ) {
         // Collect definitions from all modules in the graph
+        // Track which definitions need validation (not already validated at A2)
         var hasUnresolvableModules = false
         val allDefinitions = mutableListOf<Definition>()
+        val definitionsToValidate = mutableListOf<Definition>()
+
         for (moduleIrClass in allModuleIrClasses) {
+            val moduleFqName = moduleIrClass.fqNameWhenAvailable?.asString() ?: continue
             val moduleClass = collectedModuleClasses.find {
                 it.irClass.fqNameWhenAvailable == moduleIrClass.fqNameWhenAvailable
             }
+
+            val alreadyValidated = moduleFqName in validatedModuleFqNames
+
             if (moduleClass != null) {
                 // Local module — collect all definitions (includes cross-module hints)
-                allDefinitions.addAll(getDefinitionsForModule(moduleClass))
+                val defs = getDefinitionsForModule(moduleClass)
+                allDefinitions.addAll(defs)
+                if (!alreadyValidated) {
+                    definitionsToValidate.addAll(defs)
+                }
             } else {
                 // Cross-module @Configuration module from dependency JAR
-                val moduleFqName = moduleIrClass.fqNameWhenAvailable?.asString() ?: continue
                 KoinPluginLogger.debug { "  -> A3: resolving dependency module $moduleFqName" }
                 val result = getDefinitionsForDependencyModule(moduleFqName)
                 if (!result.isComplete) {
@@ -161,6 +180,9 @@ class CompileSafetyValidator(
                     KoinPluginLogger.debug { "  -> A3: $moduleFqName contributed ${result.definitions.size} definitions (complete)" }
                 }
                 allDefinitions.addAll(result.definitions)
+                if (!alreadyValidated) {
+                    definitionsToValidate.addAll(result.definitions)
+                }
             }
         }
 
@@ -171,14 +193,20 @@ class CompileSafetyValidator(
             return
         }
 
-        KoinPluginLogger.debug { "  -> Full-graph validation for $appName: ${allDefinitions.size} definitions from ${allModuleIrClasses.size} modules" }
+        if (definitionsToValidate.isEmpty()) {
+            KoinPluginLogger.debug { "  -> Full-graph validation for $appName: skipped (all ${allDefinitions.size} definitions already validated at A2)" }
+            return
+        }
+
+        KoinPluginLogger.debug { "  -> Full-graph validation for $appName: ${definitionsToValidate.size}/${allDefinitions.size} definitions to validate from ${allModuleIrClasses.size} modules" }
 
         val fullGraphRegistry = BindingRegistry()
         val errorCount = fullGraphRegistry.validateModule(
             "$appName (startKoin)",
             allDefinitions,
             parameterAnalyzer,
-            qualifierExtractor
+            qualifierExtractor,
+            definitionsToValidate
         )
         if (errorCount > 0) {
             KoinPluginLogger.debug { "  -> Full-graph validation found $errorCount errors" }

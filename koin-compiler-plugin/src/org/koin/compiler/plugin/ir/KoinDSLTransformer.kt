@@ -167,7 +167,11 @@ class KoinDSLTransformer(
     ): IrExpression {
         val typeArg = call.getTypeArgument(0) ?: return call
         val targetClass = typeArg.classifierOrNull?.owner as? IrClass ?: return call
-        val constructor = targetClass.primaryConstructor ?: return call
+        val constructor = targetClass.primaryConstructor
+        if (constructor == null) {
+            KoinPluginLogger.debug { "$functionName<${targetClass.name}>() skipped - no primary constructor" }
+            return call
+        }
         val receiverClassName = receiverClassifier.name.asString()
 
         // Log the interception
@@ -176,7 +180,11 @@ class KoinDSLTransformer(
         val builder = DeclarationIrBuilder(context, call.symbol, call.startOffset, call.endOffset)
 
         // Find target function with KClass parameter
-        val targetFunction = findTargetFunction(functionName, receiverClassName) ?: return call
+        val targetFunction = findTargetFunction(functionName, receiverClassName)
+        if (targetFunction == null) {
+            KoinPluginLogger.debug { "$functionName target function not found for $receiverClassName" }
+            return call
+        }
 
         // Get qualifier from @Named or @Qualifier annotation on class
         val qualifier = qualifierExtractor.extractFromClass(targetClass)

@@ -17,6 +17,7 @@ import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.koin.compiler.plugin.KoinAnnotationFqNames
+import org.koin.compiler.plugin.KoinPluginLogger
 
 /**
  * Builds IR call expressions for Koin definition DSL functions.
@@ -53,7 +54,11 @@ class DefinitionCallBuilder(
         builder: DeclarationIrBuilder
     ): IrExpression? {
         val targetClass = definition.irClass
-        val constructor = findConstructorToUse(targetClass) ?: return null
+        val constructor = findConstructorToUse(targetClass)
+        if (constructor == null) {
+            KoinPluginLogger.debug { "No constructor found for ${targetClass.fqNameWhenAvailable} - definition skipped" }
+            return null
+        }
 
         val functionName = when (definition.definitionType) {
             DefinitionType.SINGLE -> "buildSingle"
@@ -64,7 +69,10 @@ class DefinitionCallBuilder(
         }
 
         val targetFunction = findDefinitionWithKClass(Name.identifier(functionName), "org.koin.plugin.module.dsl", "Module")
-            ?: return null
+        if (targetFunction == null) {
+            KoinPluginLogger.debug { "$functionName not found for Module receiver - definition ${targetClass.name} skipped" }
+            return null
+        }
 
         val kClass = kClassClass ?: return null
 
@@ -158,7 +166,10 @@ class DefinitionCallBuilder(
         }
 
         val koinFunction = findDefinitionWithKClass(Name.identifier(functionName), "org.koin.plugin.module.dsl", "Module")
-            ?: return null
+        if (koinFunction == null) {
+            KoinPluginLogger.debug { "$functionName not found for Module receiver - function ${targetFunction.name} skipped" }
+            return null
+        }
 
         val kClass = kClassClass ?: return null
 
@@ -210,7 +221,10 @@ class DefinitionCallBuilder(
         }
 
         val koinFunction = findDefinitionWithKClass(Name.identifier(functionName), "org.koin.plugin.module.dsl", "Module")
-            ?: return null
+        if (koinFunction == null) {
+            KoinPluginLogger.debug { "$functionName not found for Module receiver - top-level function ${targetFunction.name} skipped" }
+            return null
+        }
 
         val kClass = kClassClass ?: return null
 
@@ -267,7 +281,11 @@ class DefinitionCallBuilder(
         builder: DeclarationIrBuilder
     ): IrExpression? {
         val targetClass = definition.irClass
-        val constructor = targetClass.primaryConstructor ?: return null
+        val constructor = targetClass.primaryConstructor
+        if (constructor == null) {
+            KoinPluginLogger.debug { "No primary constructor for scoped ${targetClass.fqNameWhenAvailable} - definition skipped" }
+            return null
+        }
 
         val functionName = when (definition.definitionType) {
             DefinitionType.SINGLE -> return null  // Singles can't be inside scope blocks
@@ -278,7 +296,10 @@ class DefinitionCallBuilder(
         }
 
         val scopedFunction = findDefinitionWithKClass(Name.identifier(functionName), "org.koin.plugin.module.dsl", "ScopeDSL")
-            ?: return null
+        if (scopedFunction == null) {
+            KoinPluginLogger.debug { "$functionName not found for ScopeDSL receiver - scoped ${targetClass.name} skipped" }
+            return null
+        }
 
         val kClass = kClassClass ?: return null
 
@@ -337,7 +358,10 @@ class DefinitionCallBuilder(
         }
 
         val scopedFunction = findDefinitionWithKClass(Name.identifier(functionName), "org.koin.plugin.module.dsl", "ScopeDSL")
-            ?: return null
+        if (scopedFunction == null) {
+            KoinPluginLogger.debug { "$functionName not found for ScopeDSL receiver - scoped function ${targetFunction.name} skipped" }
+            return null
+        }
 
         val kClass = kClassClass ?: return null
 
@@ -390,7 +414,10 @@ class DefinitionCallBuilder(
         }
 
         val scopedFunction = findDefinitionWithKClass(Name.identifier(functionName), "org.koin.plugin.module.dsl", "ScopeDSL")
-            ?: return null
+        if (scopedFunction == null) {
+            KoinPluginLogger.debug { "$functionName not found for ScopeDSL receiver - scoped top-level function ${targetFunction.name} skipped" }
+            return null
+        }
 
         val kClass = kClassClass ?: return null
 
@@ -515,7 +542,10 @@ class DefinitionCallBuilder(
         getterFunction: IrFunction
     ): IrExpression {
         val moduleInstanceReceiver = getterFunction.extensionReceiverParameter
-            ?: return builder.irNull()
+        if (moduleInstanceReceiver == null) {
+            KoinPluginLogger.debug { "No extension receiver on getter for function ${targetFunction.name} - lambda skipped" }
+            return builder.irNull()
+        }
 
         return lambdaBuilder.create(returnTypeClass, builder, parentFunction) { irBuilder, scopeParam, paramsParam ->
             irBuilder.irCall(targetFunction.symbol).apply {
