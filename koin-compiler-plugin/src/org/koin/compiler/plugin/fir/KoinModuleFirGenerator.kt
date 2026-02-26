@@ -33,6 +33,7 @@ import org.jetbrains.kotlin.platform.TargetPlatform
 import org.jetbrains.kotlin.platform.isJs
 import org.jetbrains.kotlin.platform.isWasm
 import org.jetbrains.kotlin.platform.konan.isNative
+import org.jetbrains.kotlin.fir.symbols.impl.FirConstructorSymbol
 import org.koin.compiler.plugin.KoinAnnotationFqNames
 import org.koin.compiler.plugin.KoinPluginConstants
 
@@ -73,7 +74,7 @@ private fun TargetPlatform?.isKlib(): Boolean =
  * The hint functions allow downstream modules to discover @Configuration modules from dependencies
  * by querying the `org.koin.plugin.hints` package via FIR's symbolProvider.
  */
-@OptIn(SymbolInternals::class, ExperimentalTopLevelDeclarationsGenerationApi::class)
+@OptIn(SymbolInternals::class, ExperimentalTopLevelDeclarationsGenerationApi::class, org.jetbrains.kotlin.fir.declarations.DirectDeclarationsAccess::class)
 class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExtension(session) {
 
     companion object {
@@ -839,7 +840,9 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
 
             log { "  Module ${moduleClassId}: scan packages=$scanPkgs" }
 
-            // Find definition classes in scan packages
+            val foundClassIds = mutableSetOf<ClassId>()
+
+            // Find definition classes in scan packages (predicate-matched: @Singleton, @Factory, etc.)
             for ((classSymbol, defType) in allDefinitionSymbols) {
                 val packageName = classSymbol.classId.packageFqName.asString()
                 val matchesScanPackage = scanPkgs.any { scanPkg ->
@@ -847,8 +850,35 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
                 }
                 if (matchesScanPackage) {
                     val containingFileName = getContainingFileName(classSymbol) ?: continue
+                    foundClassIds.add(classSymbol.classId)
                     log { "    + ${classSymbol.classId} ($defType)" }
                     results.add(ModuleScanDefinitionInfo(moduleClassId, classSymbol, defType, containingFileName))
+                }
+            }
+
+            // Also find @Inject constructor classes in scan packages.
+            // FIR predicates can't match constructor annotations, so we enumerate classes
+            // in each scan package and check their constructors via FIR symbols.
+            for (scanPkg in scanPkgs) {
+                val pkgFqName = FqName(scanPkg)
+                val classNames = session.symbolProvider.symbolNamesProvider
+                    .getTopLevelClassifierNamesInPackage(pkgFqName)
+                log { "    @Inject scan: package=$scanPkg, classNames=${classNames?.size ?: "null"}" }
+                if (classNames == null) continue
+                for (className in classNames) {
+                    val classId = ClassId(pkgFqName, className)
+                    if (classId in foundClassIds) continue
+                    val symbol = session.symbolProvider.getClassLikeSymbolByClassId(classId)
+                        as? FirClassSymbol<*> ?: continue
+                    if (symbol.rawStatus.isExpect) continue
+                    val hasInject = hasInjectConstructorFir(symbol)
+                    log { "    @Inject scan: $classId hasInject=$hasInject" }
+                    if (hasInject) {
+                        val containingFileName = getContainingFileName(symbol) ?: continue
+                        foundClassIds.add(classId)
+                        log { "    + $classId (factory, @Inject constructor)" }
+                        results.add(ModuleScanDefinitionInfo(moduleClassId, symbol, DEF_TYPE_FACTORY, containingFileName))
+                    }
                 }
             }
         }
@@ -940,6 +970,22 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
 
         log { "Collected ${results.size} module-scoped scan functions" }
         results
+    }
+
+    /**
+     * Check if a FIR class symbol has a constructor annotated with @Inject (jakarta or javax).
+     * Works for both KtPsiSourceElement and KtLightSourceElement sources.
+     */
+    private fun hasInjectConstructorFir(classSymbol: FirClassSymbol<*>): Boolean {
+        return classSymbol.declarationSymbols
+            .filterIsInstance<FirConstructorSymbol>()
+            .any { constructorSymbol ->
+                constructorSymbol.fir.annotations.any { annotation ->
+                    val annotationClassId = annotation.annotationTypeRef.coneTypeOrNull?.classId
+                    val fqName = annotationClassId?.asSingleFqName()
+                    fqName == JAVAX_INJECT_ANNOTATION || fqName == JAKARTA_INJECT_ANNOTATION
+                }
+            }
     }
 
     // Predicate to find ALL classes that might have @Inject constructor
