@@ -52,6 +52,7 @@ class ParameterAnalyzer(
         // @Property("key") → property injection
         val propertyKey = qualifierExtractor.getPropertyAnnotationKey(param)
         if (propertyKey != null) {
+            KoinPluginLogger.debug { "    param '$paramName': @Property(\"$propertyKey\")" }
             return Requirement(
                 typeKey = typeKeyFromType(paramType),
                 paramName = paramName,
@@ -69,6 +70,7 @@ class ParameterAnalyzer(
         // @InjectedParam → provided at runtime via parametersOf()
         val isInjectedParam = qualifierExtractor.hasInjectedParamAnnotation(param)
         if (isInjectedParam) {
+            KoinPluginLogger.debug { "    param '$paramName': @InjectedParam" }
             return Requirement(
                 typeKey = typeKeyFromType(paramType),
                 paramName = paramName,
@@ -99,6 +101,7 @@ class ParameterAnalyzer(
             if (className == "Lazy" && packageName == "kotlin") {
                 val innerType = (paramType as? IrSimpleType)?.arguments?.firstOrNull()?.typeOrNull
                 val innerTypeKey = if (innerType != null) typeKeyFromType(innerType) else typeKeyFromType(paramType)
+                KoinPluginLogger.debug { "    param '$paramName': Lazy<${innerTypeKey.render()}> (nullable=$isNullable, hasDefault=$hasDefault)" }
                 return Requirement(
                     typeKey = innerTypeKey,
                     paramName = paramName,
@@ -117,6 +120,7 @@ class ParameterAnalyzer(
             if (className == "List" && packageName == "kotlin.collections") {
                 val elementType = (paramType as? IrSimpleType)?.arguments?.firstOrNull()?.typeOrNull
                 val elementTypeKey = if (elementType != null) typeKeyFromType(elementType) else typeKeyFromType(paramType)
+                KoinPluginLogger.debug { "    param '$paramName': List<${elementTypeKey.render()}> (nullable=$isNullable, hasDefault=$hasDefault)" }
                 return Requirement(
                     typeKey = elementTypeKey,
                     paramName = paramName,
@@ -133,8 +137,15 @@ class ParameterAnalyzer(
         }
 
         // Regular type
+        val typeKey = typeKeyFromType(paramType)
+        val qualifierStr = when (qualifier) {
+            is QualifierValue.StringQualifier -> ", qualifier=@Named(\"${qualifier.name}\")"
+            is QualifierValue.TypeQualifier -> ", qualifier=@Qualifier(${qualifier.irClass.name}::class)"
+            null -> ""
+        }
+        KoinPluginLogger.debug { "    param '$paramName': ${typeKey.render()} (nullable=$isNullable, hasDefault=$hasDefault$qualifierStr)" }
         return Requirement(
-            typeKey = typeKeyFromType(paramType),
+            typeKey = typeKey,
             paramName = paramName,
             isNullable = isNullable,
             hasDefault = hasDefault,

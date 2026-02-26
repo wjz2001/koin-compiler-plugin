@@ -40,6 +40,11 @@ import org.koin.compiler.plugin.KoinPluginLogger
 sealed class QualifierValue {
     data class StringQualifier(val name: String) : QualifierValue()
     data class TypeQualifier(val irClass: IrClass) : QualifierValue()
+
+    fun debugString(): String = when (this) {
+        is StringQualifier -> "@Named(\"$name\")"
+        is TypeQualifier -> "@Qualifier(${irClass.name}::class)"
+    }
 }
 
 /**

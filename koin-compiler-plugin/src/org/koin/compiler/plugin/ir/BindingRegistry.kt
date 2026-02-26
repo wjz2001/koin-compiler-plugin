@@ -137,6 +137,13 @@ class BindingRegistry {
 
             // The definition provides its own type
             providedTypes.add(ProviderKey(typeKey, qualifier, scopeClass))
+            val scopeStr = scopeClass?.fqNameWhenAvailable?.asString()?.let { " (scope=$it)" } ?: ""
+            val qualifierStr = when (qualifier) {
+                is QualifierValue.StringQualifier -> " @Named(\"${qualifier.name}\")"
+                is QualifierValue.TypeQualifier -> " @Qualifier(${qualifier.irClass.name}::class)"
+                null -> ""
+            }
+            KoinPluginLogger.debug { "    provides: ${typeKey.render()}$qualifierStr$scopeStr" }
 
             // It also provides its bound interfaces
             for (binding in def.bindings) {
@@ -145,13 +152,15 @@ class BindingRegistry {
                     fqName = binding.fqNameWhenAvailable
                 )
                 providedTypes.add(ProviderKey(bindingTypeKey, qualifier, scopeClass))
+                KoinPluginLogger.debug { "    provides (binding): ${bindingTypeKey.render()}$qualifierStr$scopeStr" }
             }
         }
 
         // Only validate requirements from the specified subset (or all if not specified)
         val toValidate = definitionsToValidate ?: definitions
 
-        KoinPluginLogger.debug { "  Safety check for $moduleName: ${providedTypes.size} provided types, ${toValidate.size}/${definitions.size} definitions to validate" }
+        KoinPluginLogger.debug { "  provided types registry: ${providedTypes.size} entries" }
+        KoinPluginLogger.debug { "  definitions to check: ${toValidate.size}/${definitions.size}" }
 
         // Validate each definition's requirements
         var errorCount = 0
@@ -159,9 +168,21 @@ class BindingRegistry {
             val requirements = extractRequirements(def, parameterAnalyzer)
             val defName = definitionDisplayName(def)
             val defScopeClass = def.scopeClass
+            KoinPluginLogger.debug { "    validating: $defName (${requirements.size} requirements)" }
 
             for (req in requirements) {
-                if (!req.requiresValidation()) continue
+                if (!req.requiresValidation()) {
+                    val reason = when {
+                        req.isInjectedParam -> "@InjectedParam"
+                        req.isNullable -> "nullable"
+                        req.isList -> "List (getAll)"
+                        req.isProperty -> "@Property"
+                        KoinPluginLogger.skipDefaultValuesEnabled && req.hasDefault && req.qualifier == null -> "hasDefault (skipDefaultValues)"
+                        else -> "unknown"
+                    }
+                    KoinPluginLogger.debug { "      skip '${req.paramName}': ${req.typeKey.render()} ($reason)" }
+                    continue
+                }
 
                 // Check @Property separately
                 if (req.isProperty && req.propertyKey != null) {
@@ -175,11 +196,21 @@ class BindingRegistry {
 
                 // Skip @Provided types and framework-provided types (always available at runtime)
                 val reqFqName = req.typeKey.fqName?.asString() ?: req.typeKey.classId?.asFqNameString()
-                if (reqFqName != null && (ProvidedTypeRegistry.isProvided(reqFqName) || isWhitelistedType(reqFqName))) continue
+                if (reqFqName != null && ProvidedTypeRegistry.isProvided(reqFqName)) {
+                    KoinPluginLogger.debug { "      skip '${req.paramName}': ${req.typeKey.render()} (@Provided)" }
+                    continue
+                }
+                if (reqFqName != null && isWhitelistedType(reqFqName)) {
+                    KoinPluginLogger.debug { "      skip '${req.paramName}': ${req.typeKey.render()} (framework whitelist)" }
+                    continue
+                }
 
                 // Look for a matching provider
                 val found = findProvider(req, providedTypes, defScopeClass)
-                if (!found) {
+                if (found) {
+                    KoinPluginLogger.debug { "      OK '${req.paramName}': ${req.typeKey.render()}" }
+                } else {
+                    KoinPluginLogger.debug { "      MISSING '${req.paramName}': ${req.typeKey.render()}" }
                     reportMissingDependency(req, defName, moduleName, providedTypes)
                     errorCount++
                 }
@@ -187,7 +218,9 @@ class BindingRegistry {
         }
 
         if (errorCount == 0) {
-            KoinPluginLogger.debug { "  Safety check for $moduleName: OK (all dependencies satisfied)" }
+            KoinPluginLogger.debug { "  result: OK - all dependencies satisfied for $moduleName" }
+        } else {
+            KoinPluginLogger.debug { "  result: FAILED - $errorCount missing dependencies in $moduleName" }
         }
 
         return errorCount
@@ -215,7 +248,10 @@ class BindingRegistry {
             if (!typeMatch) continue
 
             // Qualifier must match
-            if (!qualifiersMatch(req.qualifier, provider.qualifier)) continue
+            if (!qualifiersMatch(req.qualifier, provider.qualifier)) {
+                KoinPluginLogger.debug { "        type match ${req.typeKey.render()} but qualifier mismatch: required=${req.qualifier?.debugString()} vs provided=${provider.qualifier?.debugString()}" }
+                continue
+            }
 
             // Scope visibility: root-scope providers are visible everywhere,
             // same-scope providers are visible within the scope
@@ -229,6 +265,7 @@ class BindingRegistry {
                 return true
             }
             // Different scope — not visible, keep searching
+            KoinPluginLogger.debug { "        type match ${req.typeKey.render()} but scope mismatch: consumer=${consumerScopeClass?.fqNameWhenAvailable} vs provider=${providerScope.fqNameWhenAvailable}" }
         }
 
         return false

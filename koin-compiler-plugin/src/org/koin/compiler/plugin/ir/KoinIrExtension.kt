@@ -18,8 +18,12 @@ class KoinIrExtension : IrGenerationExtension {
         // Shared qualifier extractor and optional safety validator
         val qualifierExtractor = QualifierExtractor(pluginContext)
         val safetyValidator = if (KoinPluginLogger.safetyChecksEnabled) {
+            KoinPluginLogger.debug { "Compile safety: ENABLED (skipDefaultValues=${KoinPluginLogger.skipDefaultValuesEnabled})" }
             CompileSafetyValidator(qualifierExtractor)
-        } else null
+        } else {
+            KoinPluginLogger.debug { "Compile safety: DISABLED" }
+            null
+        }
 
         // Phase 1: Process @Module/@ComponentScan/@Singleton/@Factory annotations
         // Generates: fun MyModule.module() = module { single<A>(); factory<B>() }
