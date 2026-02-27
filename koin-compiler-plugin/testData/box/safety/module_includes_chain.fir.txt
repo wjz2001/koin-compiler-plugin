@@ -1,0 +1,77 @@
+FILE: test.kt
+    public final class Database : R|kotlin/Any| {
+        public constructor(): R|Database| {
+            super<R|kotlin/Any|>()
+        }
+
+    }
+    public final class Repository : R|kotlin/Any| {
+        public constructor(db: R|Database|): R|Repository| {
+            super<R|kotlin/Any|>()
+        }
+
+        public final val db: R|Database| = R|<local>/db|
+            public get(): R|Database|
+
+    }
+    public final class AppService : R|kotlin/Any| {
+        public constructor(repo: R|Repository|): R|AppService| {
+            super<R|kotlin/Any|>()
+        }
+
+        public final val repo: R|Repository| = R|<local>/repo|
+            public get(): R|Repository|
+
+    }
+    @R|org/koin/core/annotation/Module|() public final class InfraModule : R|kotlin/Any| {
+        public constructor(): R|InfraModule| {
+            super<R|kotlin/Any|>()
+        }
+
+        @R|org/koin/core/annotation/Single|() public final fun provideDb(): R|Database| {
+            ^provideDb R|/Database.Database|()
+        }
+
+    }
+    @R|org/koin/core/annotation/Module|(includes = <collectionLiteralCall>(<getClass>(Q|InfraModule|))) public final class DataModule : R|kotlin/Any| {
+        public constructor(): R|DataModule| {
+            super<R|kotlin/Any|>()
+        }
+
+        @R|org/koin/core/annotation/Single|() public final fun provideRepo(db: R|Database|): R|Repository| {
+            ^provideRepo R|/Repository.Repository|(R|<local>/db|)
+        }
+
+    }
+    @R|org/koin/core/annotation/Module|(includes = <collectionLiteralCall>(<getClass>(Q|DataModule|))) public final class AppModule : R|kotlin/Any| {
+        public constructor(): R|AppModule| {
+            super<R|kotlin/Any|>()
+        }
+
+        @R|org/koin/core/annotation/Single|() public final fun provideService(repo: R|Repository|): R|AppService| {
+            ^provideService R|/AppService.AppService|(R|<local>/repo|)
+        }
+
+    }
+    public final fun box(): R|kotlin/String| {
+        lval koin: R|org/koin/core/Koin| = R|org/koin/dsl/koinApplication|(<L> = koinApplication@fun R|org/koin/core/KoinApplication|.<anonymous>(): R|kotlin/Unit| <inline=NoInline>  {
+            this@R|special/anonymous|.R|org/koin/core/KoinApplication.modules|(R|/AppModule.AppModule|().R|/module|())
+        }
+        ).R|org/koin/core/KoinApplication.koin|
+        lval service: R|AppService| = R|<local>/koin|.R|org/koin/core/Koin.get|<R|AppService|>()
+        ^box when () {
+            !=(R|<local>/service|.R|/AppService.repo|.R|/Repository.db|, Null(null)) ->  {
+                String(OK)
+            }
+            else ->  {
+                String(FAIL)
+            }
+        }
+
+    }
+FILE: /infraModuleModule.kt
+    public final fun R|InfraModule|.module(): R|org/koin/core/module/Module|
+FILE: /dataModuleModule.kt
+    public final fun R|DataModule|.module(): R|org/koin/core/module/Module|
+FILE: /appModuleModule.kt
+    public final fun R|AppModule|.module(): R|org/koin/core/module/Module|

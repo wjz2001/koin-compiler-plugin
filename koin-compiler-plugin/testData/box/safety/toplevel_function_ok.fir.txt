@@ -1,0 +1,46 @@
+FILE: test.kt
+    public abstract interface DataSource : R|kotlin/Any| {
+    }
+    public final class DatabaseDataSource : R|DataSource| {
+        public constructor(): R|DatabaseDataSource| {
+            super<R|kotlin/Any|>()
+        }
+
+    }
+    @R|org/koin/core/annotation/Singleton|() public final fun provideDataSource(): R|DataSource| {
+        ^provideDataSource R|/DatabaseDataSource.DatabaseDataSource|()
+    }
+    @R|org/koin/core/annotation/Singleton|() public final class Service : R|kotlin/Any| {
+        public constructor(ds: R|DataSource|): R|Service| {
+            super<R|kotlin/Any|>()
+        }
+
+        public final val ds: R|DataSource| = R|<local>/ds|
+            public get(): R|DataSource|
+
+    }
+    @R|org/koin/core/annotation/Module|() @R|org/koin/core/annotation/ComponentScan|() public final class TestModule : R|kotlin/Any| {
+        public constructor(): R|TestModule| {
+            super<R|kotlin/Any|>()
+        }
+
+    }
+    public final fun box(): R|kotlin/String| {
+        lval koin: R|org/koin/core/Koin| = R|org/koin/dsl/koinApplication|(<L> = koinApplication@fun R|org/koin/core/KoinApplication|.<anonymous>(): R|kotlin/Unit| <inline=NoInline>  {
+            this@R|special/anonymous|.R|org/koin/core/KoinApplication.modules|(R|/TestModule.TestModule|().R|/module|())
+        }
+        ).R|org/koin/core/KoinApplication.koin|
+        lval service: R|Service| = R|<local>/koin|.R|org/koin/core/Koin.get|<R|Service|>()
+        lval ds: R|DataSource| = R|<local>/koin|.R|org/koin/core/Koin.get|<R|DataSource|>()
+        ^box when () {
+            ===(R|<local>/service|.R|/Service.ds|, R|<local>/ds|) && (R|<local>/ds| is R|DatabaseDataSource|) ->  {
+                String(OK)
+            }
+            else ->  {
+                String(FAIL)
+            }
+        }
+
+    }
+FILE: /testModuleModule.kt
+    public final fun R|TestModule|.module(): R|org/koin/core/module/Module|

@@ -269,6 +269,12 @@ public class JvmBoxTestGenerated extends AbstractJvmBoxTest {
     }
 
     @Test
+    @TestMetadata("module_includes_chain.kt")
+    public void testModule_includes_chain() {
+      runTest("koin-compiler-plugin/testData/box/safety/module_includes_chain.kt");
+    }
+
+    @Test
     @TestMetadata("module_includes_visible.kt")
     public void testModule_includes_visible() {
       runTest("koin-compiler-plugin/testData/box/safety/module_includes_visible.kt");
@@ -278,6 +284,12 @@ public class JvmBoxTestGenerated extends AbstractJvmBoxTest {
     @TestMetadata("nullable_ok.kt")
     public void testNullable_ok() {
       runTest("koin-compiler-plugin/testData/box/safety/nullable_ok.kt");
+    }
+
+    @Test
+    @TestMetadata("provided_type_ok.kt")
+    public void testProvided_type_ok() {
+      runTest("koin-compiler-plugin/testData/box/safety/provided_type_ok.kt");
     }
 
     @Test
@@ -296,6 +308,12 @@ public class JvmBoxTestGenerated extends AbstractJvmBoxTest {
     @TestMetadata("startkoin_full_graph.kt")
     public void testStartkoin_full_graph() {
       runTest("koin-compiler-plugin/testData/box/safety/startkoin_full_graph.kt");
+    }
+
+    @Test
+    @TestMetadata("toplevel_function_ok.kt")
+    public void testToplevel_function_ok() {
+      runTest("koin-compiler-plugin/testData/box/safety/toplevel_function_ok.kt");
     }
   }
 

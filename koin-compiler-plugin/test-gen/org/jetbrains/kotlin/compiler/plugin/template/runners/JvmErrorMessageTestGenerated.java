@@ -39,6 +39,12 @@ public class JvmErrorMessageTestGenerated extends AbstractJvmErrorMessageTest {
   }
 
   @Test
+  @TestMetadata("provided_missing.kt")
+  public void testProvided_missing() {
+    runTest("koin-compiler-plugin/testData/diagnostics/provided_missing.kt");
+  }
+
+  @Test
   @TestMetadata("qualifier_mismatch.kt")
   public void testQualifier_mismatch() {
     runTest("koin-compiler-plugin/testData/diagnostics/qualifier_mismatch.kt");

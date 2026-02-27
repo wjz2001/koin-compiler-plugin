@@ -166,6 +166,27 @@ class KoinConfigurationRegistryTest {
         assertTrue(modules.count { it == moduleName } == 1, "Module should appear only once")
     }
 
+    // ================================================================================
+    // Scan packages
+    // ================================================================================
+
+    @Test
+    fun `register and retrieve scan packages`() {
+        val moduleName = "com.example.ScanPkg_$testId"
+        KoinConfigurationRegistry.registerScanPackages(moduleName, listOf("com.example.data", "com.example.domain"))
+
+        val packages = KoinConfigurationRegistry.getScanPackages(moduleName)
+        assertTrue(packages != null, "Should return non-null")
+        assertTrue(packages.orEmpty().contains("com.example.data"), "Should contain data package")
+        assertTrue(packages.orEmpty().contains("com.example.domain"), "Should contain domain package")
+    }
+
+    @Test
+    fun `getScanPackages returns null for unregistered module`() {
+        val packages = KoinConfigurationRegistry.getScanPackages("com.example.Unknown_$testId")
+        assertTrue(packages == null, "Should return null for unregistered module")
+    }
+
     @Test
     fun `same module with different labels appears under both`() {
         val moduleName = "com.example.MultiReg_$testId"

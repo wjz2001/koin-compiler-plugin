@@ -334,6 +334,46 @@ class BindingRegistryTest {
     }
 
     // ================================================================================
+    // Framework whitelist tests
+    // ================================================================================
+
+    @Test
+    fun `android Context is whitelisted`() {
+        assertTrue(BindingRegistry.isWhitelistedType("android.content.Context"))
+    }
+
+    @Test
+    fun `android Activity is whitelisted`() {
+        assertTrue(BindingRegistry.isWhitelistedType("android.app.Activity"))
+    }
+
+    @Test
+    fun `android Application is whitelisted`() {
+        assertTrue(BindingRegistry.isWhitelistedType("android.app.Application"))
+    }
+
+    @Test
+    fun `SavedStateHandle is whitelisted`() {
+        assertTrue(BindingRegistry.isWhitelistedType("androidx.lifecycle.SavedStateHandle"))
+    }
+
+    @Test
+    fun `WorkerParameters is whitelisted`() {
+        assertTrue(BindingRegistry.isWhitelistedType("androidx.work.WorkerParameters"))
+    }
+
+    @Test
+    fun `unknown type is NOT whitelisted`() {
+        assertFalse(BindingRegistry.isWhitelistedType("com.example.MyService"))
+    }
+
+    @Test
+    fun `partial match is NOT whitelisted`() {
+        assertFalse(BindingRegistry.isWhitelistedType("android.content"))
+        assertFalse(BindingRegistry.isWhitelistedType("android.content.Context.Companion"))
+    }
+
+    // ================================================================================
     // Helpers
     // ================================================================================
 
