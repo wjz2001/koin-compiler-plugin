@@ -9,6 +9,7 @@ import org.jetbrains.kotlin.descriptors.impl.EmptyPackageFragmentDescriptor
 import org.jetbrains.kotlin.fir.backend.FirMetadataSource
 import org.jetbrains.kotlin.fir.builder.buildPackageDirective
 import org.jetbrains.kotlin.fir.declarations.FirDeclarationOrigin
+import org.jetbrains.kotlin.fir.FirModuleData
 import org.jetbrains.kotlin.fir.declarations.builder.buildFile
 import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.IrStatement
@@ -867,17 +868,20 @@ class KoinAnnotationProcessor(
                 val targetClass = definition.returnTypeClass
                 val targetClassId = targetClass.classId ?: continue
 
+                // Use module class as fallback for FIR metadata when targetClass is external (e.g., HttpClient from ktor)
+                val fallback = moduleClass.irClass
+
                 when (definition) {
                     is Definition.ClassDef, is Definition.ExternalFunctionDef -> {
                         // Class definition hint: componentscan_<moduleId>_<defType>
                         val hintName = KoinModuleFirGenerator.moduleScanHintFunctionName(sanitizedModuleId, defTypeStr)
-                        generateSingleHint(moduleFragment, hintsPackage, hintName, targetClass, targetClassId)
+                        generateSingleHint(moduleFragment, hintsPackage, hintName, targetClass, targetClassId, fallback)
                         KoinPluginLogger.debug { "    + componentscan hint: ${targetClass.name} ($defTypeStr)" }
                     }
                     is Definition.TopLevelFunctionDef -> {
                         // Function definition hint: componentscanfunc_<moduleId>_<defType>
                         val hintName = KoinModuleFirGenerator.moduleScanFunctionHintFunctionName(sanitizedModuleId, defTypeStr)
-                        generateSingleHint(moduleFragment, hintsPackage, hintName, targetClass, targetClassId)
+                        generateSingleHint(moduleFragment, hintsPackage, hintName, targetClass, targetClassId, fallback)
                         KoinPluginLogger.debug { "    + componentscanfunc hint: ${targetClass.name} ($defTypeStr)" }
                     }
                     is Definition.FunctionDef -> {
@@ -903,7 +907,8 @@ class KoinAnnotationProcessor(
         hintsPackage: FqName,
         hintName: Name,
         targetClass: IrClass,
-        targetClassId: ClassId
+        targetClassId: ClassId,
+        fallbackMetadataSource: IrClass? = null
     ) {
         // Build the IR function
         val function = context.irFactory.createSimpleFunction(
@@ -951,13 +956,9 @@ class KoinAnnotationProcessor(
         val fileName = buildHintFileName(targetClassId, hintName)
 
         // Create synthetic FirFile for metadata
-        val metadataSource = targetClass.metadata
-        val firModuleData = when (metadataSource) {
-            is FirMetadataSource.Class -> metadataSource.fir.moduleData
-            is FirMetadataSource.Function -> metadataSource.fir.moduleData
-            is FirMetadataSource.File -> metadataSource.fir.moduleData
-            else -> null
-        }
+        // Try targetClass first, then fallback (e.g., module class) for external return types
+        val firModuleData = extractFirModuleData(targetClass)
+            ?: fallbackMetadataSource?.let { extractFirModuleData(it) }
 
         if (firModuleData == null) {
             KoinPluginLogger.debug { "    WARN: No FIR module data for ${targetClass.name}, skipping hint" }
@@ -973,7 +974,15 @@ class KoinAnnotationProcessor(
 
         // Create synthetic IrFile with a deterministic fake path
         // (same approach as Metro — kotlinc IC needs an absolute-looking path)
-        val fakeNewPath = Path(targetClass.fileEntry.name).parent.resolve(fileName)
+        // Use fallback class's file entry when targetClass is external (no real file path)
+        val sourceFileEntry = try {
+            val entry = targetClass.fileEntry
+            if (entry.name.contains("/") || entry.name.contains("\\")) entry
+            else fallbackMetadataSource?.fileEntry ?: entry
+        } catch (_: NotImplementedError) {
+            fallbackMetadataSource?.fileEntry ?: throw IllegalStateException("No file entry for hint $hintName")
+        }
+        val fakeNewPath = Path(sourceFileEntry.name).parent.resolve(fileName)
         val hintFile = IrFileImpl(
             fileEntry = NaiveSourceBasedFileEntryImpl(fakeNewPath.absolutePathString()),
             packageFragmentDescriptor = EmptyPackageFragmentDescriptor(
@@ -989,6 +998,16 @@ class KoinAnnotationProcessor(
         // Register for downstream visibility — this is the key API that makes hints visible
         // to downstream compilations via Kotlin metadata in the compiled artifact.
         context.metadataDeclarationRegistrar.registerFunctionAsMetadataVisible(function)
+    }
+
+    /** Extract FIR module data from an IR class's metadata. */
+    private fun extractFirModuleData(irClass: IrClass): FirModuleData? {
+        return when (val src = irClass.metadata) {
+            is FirMetadataSource.Class -> src.fir.moduleData
+            is FirMetadataSource.Function -> src.fir.moduleData
+            is FirMetadataSource.File -> src.fir.moduleData
+            else -> null
+        }
     }
 
     /**
@@ -1150,18 +1169,50 @@ class KoinAnnotationProcessor(
             CallableId(moduleDslFqName, Name.identifier("module"))
         ).firstOrNull { it.owner.valueParameters.any { p ->
             p.name.asString() == "moduleDeclaration"
-        }}?.owner ?: return
+        }}?.owner
+        if (moduleDslFunction == null) {
+            KoinPluginLogger.error(
+                "Cannot generate ${moduleClass.irClass.name}.module(): " +
+                "org.koin.dsl.module() not found on classpath. " +
+                "Please add io.insert-koin:koin-core to your dependencies."
+            )
+            // Generate error("Stub!") body to prevent backend crash
+            generateErrorStubBody(function)
+            return
+        }
 
         val builder = DeclarationIrBuilder(context, function.symbol, UNDEFINED_OFFSET, UNDEFINED_OFFSET)
 
         val moduleCall = buildModuleCall(moduleDslFunction, definitions, moduleClass, function, builder)
-            ?: return
+        if (moduleCall == null) {
+            // Generate error("Stub!") body to prevent backend crash
+            generateErrorStubBody(function)
+            return
+        }
 
         function.body = context.irFactory.createBlockBody(
             UNDEFINED_OFFSET,
             UNDEFINED_OFFSET,
             listOf(builder.irReturn(moduleCall))
         )
+    }
+
+    /**
+     * Generate a stub body: error("Stub!") to prevent "Function has no body" backend crashes.
+     * Used when the function body can't be generated (e.g., koin-core not on classpath).
+     */
+    private fun generateErrorStubBody(function: IrSimpleFunction) {
+        val builder = DeclarationIrBuilder(context, function.symbol, UNDEFINED_OFFSET, UNDEFINED_OFFSET)
+        val errorFunction = context.referenceFunctions(
+            CallableId(FqName("kotlin"), Name.identifier("error"))
+        ).firstOrNull()
+        if (errorFunction != null) {
+            function.body = builder.irBlockBody {
+                +irCall(errorFunction).apply {
+                    putValueArgument(0, irString("Koin compiler plugin: missing koin-core dependency"))
+                }
+            }
+        }
     }
 
     /**
