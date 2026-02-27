@@ -698,12 +698,12 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
         // JSR-330 annotations - class-level @Singleton
         collectDefinitions(jakartaSingletonPredicate, DEF_TYPE_SINGLE)
         collectDefinitions(javaxSingletonPredicate, DEF_TYPE_SINGLE)
-        // Note: jakartaInjectPredicate and javaxInjectPredicate only find class-level @Inject
-        // For @Inject constructor, we need to check constructor annotations manually
+        // JSR-330: class-level @Inject
         collectDefinitions(jakartaInjectPredicate, DEF_TYPE_FACTORY)
         collectDefinitions(javaxInjectPredicate, DEF_TYPE_FACTORY)
 
         // Find classes with @Inject constructor (annotation on constructor, not class)
+        // FIR predicates can't match constructor annotations, so we use PSI-based scanning
         collectInjectConstructorClasses(definitions)
 
         log { "Found ${definitions.size} orphan definition classes (need hints for cross-module discovery)" }
@@ -822,6 +822,9 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
             addAll(collectAllDefinitionSymbols(javaxInjectPredicate, DEF_TYPE_FACTORY))
         }
 
+        // Deduplicate: a class may match multiple predicates
+        val deduped = allDefinitionSymbols.distinctBy { it.first.classId }
+
         for (configModule in configModulesWithScan) {
             val moduleClassId = configModule.classSymbol.classId
 
@@ -843,7 +846,7 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
             val foundClassIds = mutableSetOf<ClassId>()
 
             // Find definition classes in scan packages (predicate-matched: @Singleton, @Factory, etc.)
-            for ((classSymbol, defType) in allDefinitionSymbols) {
+            for ((classSymbol, defType) in deduped) {
                 val packageName = classSymbol.classId.packageFqName.asString()
                 val matchesScanPackage = scanPkgs.any { scanPkg ->
                     packageName == scanPkg || packageName.startsWith("$scanPkg.")
@@ -858,22 +861,19 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
 
             // Also find @Inject constructor classes in scan packages.
             // FIR predicates can't match constructor annotations, so we enumerate classes
-            // in each scan package and check their constructors via FIR symbols.
+            // in each scan package using getTopLevelClassifierNamesInPackage and check constructors.
+            // This works for exact packages; subpackages need the PSI fallback below.
             for (scanPkg in scanPkgs) {
                 val pkgFqName = FqName(scanPkg)
                 val classNames = session.symbolProvider.symbolNamesProvider
-                    .getTopLevelClassifierNamesInPackage(pkgFqName)
-                log { "    @Inject scan: package=$scanPkg, classNames=${classNames?.size ?: "null"}" }
-                if (classNames == null) continue
+                    .getTopLevelClassifierNamesInPackage(pkgFqName) ?: continue
                 for (className in classNames) {
                     val classId = ClassId(pkgFqName, className)
                     if (classId in foundClassIds) continue
                     val symbol = session.symbolProvider.getClassLikeSymbolByClassId(classId)
                         as? FirClassSymbol<*> ?: continue
                     if (symbol.rawStatus.isExpect) continue
-                    val hasInject = hasInjectConstructorFir(symbol)
-                    log { "    @Inject scan: $classId hasInject=$hasInject" }
-                    if (hasInject) {
+                    if (hasInjectConstructorFir(symbol)) {
                         val containingFileName = getContainingFileName(symbol) ?: continue
                         foundClassIds.add(classId)
                         log { "    + $classId (factory, @Inject constructor)" }
@@ -881,6 +881,13 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
                     }
                 }
             }
+
+            // Subpackage discovery: scan source directories to find @Inject constructor classes
+            // in subpackages. getTopLevelClassifierNamesInPackage only works for exact packages,
+            // so we derive source roots from the config module's file and walk subdirectories.
+            discoverInjectConstructorInSubpackages(
+                configModule.classSymbol, scanPkgs, foundClassIds, moduleClassId, results
+            )
         }
 
         log { "Collected ${results.size} module-scoped scan definitions" }
@@ -1116,6 +1123,135 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
 
         scanDeclarations(ktFile.declarations)
         return count
+    }
+
+    /**
+     * Discover @Inject constructor classes in subpackages of scan packages.
+     * Derives source roots from the config module's source file, then walks subdirectories
+     * matching the scan package prefixes to find all Kotlin files. Each file is checked for
+     * classes with @Inject constructor that haven't been found by exact-package scanning.
+     */
+    private fun discoverInjectConstructorInSubpackages(
+        configModuleSymbol: FirClassSymbol<*>,
+        scanPkgs: List<String>,
+        foundClassIds: MutableSet<ClassId>,
+        moduleClassId: ClassId,
+        results: MutableList<ModuleScanDefinitionInfo>
+    ) {
+        try {
+            // Get config module's package to derive source root
+            val modulePackage = configModuleSymbol.classId.packageFqName.asString()
+            val source = configModuleSymbol.fir.source
+            if (source !is KtPsiSourceElement) return
+
+            val ktFile = source.psi.containingFile as? org.jetbrains.kotlin.psi.KtFile ?: return
+            val filePath = ktFile.virtualFilePath
+
+            // Derive source root: strip the package directory from the file path
+            // e.g., ".../src/demo/kotlin/com/foo/sync/di/SyncKoinModule.kt" with package "com.foo.sync.di"
+            //   -> source root = ".../src/demo/kotlin/"
+            val packagePath = modulePackage.replace('.', java.io.File.separatorChar)
+            val sourceRootIdx = filePath.indexOf(packagePath)
+            if (sourceRootIdx <= 0) return
+            val sourceRoot = filePath.substring(0, sourceRootIdx)
+
+            log { "    Subpackage scan: sourceRoot=$sourceRoot" }
+
+            // For each scan package, walk its directory and subdirectories to discover subpackages
+            for (scanPkg in scanPkgs) {
+                val scanPkgPath = scanPkg.replace('.', java.io.File.separatorChar)
+                val scanDir = java.io.File(sourceRoot, scanPkgPath)
+                if (!scanDir.isDirectory) {
+                    // Also check other source roots (e.g., main/ vs demo/)
+                    // Derive alternative source roots by replacing the variant-specific path component
+                    val alternativeRoots = findAlternativeSourceRoots(sourceRoot)
+                    for (altRoot in alternativeRoots) {
+                        val altDir = java.io.File(altRoot, scanPkgPath)
+                        if (altDir.isDirectory) {
+                            scanDirectoryForInjectClasses(altDir, scanPkg, foundClassIds, moduleClassId, results)
+                        }
+                    }
+                    continue
+                }
+                scanDirectoryForInjectClasses(scanDir, scanPkg, foundClassIds, moduleClassId, results)
+            }
+        } catch (e: Exception) {
+            log { "    Error in subpackage discovery: ${e.message}" }
+        }
+    }
+
+    /**
+     * Find alternative source roots by replacing variant-specific components.
+     * E.g., ".../src/demo/kotlin/" -> [".../src/main/kotlin/", ".../src/debug/kotlin/"]
+     */
+    private fun findAlternativeSourceRoots(sourceRoot: String): List<String> {
+        val sep = java.io.File.separator
+        // Match pattern: .../src/<variant>/kotlin/
+        val srcIdx = sourceRoot.lastIndexOf("${sep}src${sep}")
+        if (srcIdx < 0) return emptyList()
+
+        val afterSrc = sourceRoot.substring(srcIdx + "${sep}src${sep}".length)
+        val variantEnd = afterSrc.indexOf(sep)
+        if (variantEnd < 0) return emptyList()
+
+        val basePath = sourceRoot.substring(0, srcIdx + "${sep}src${sep}".length)
+        val suffix = afterSrc.substring(variantEnd)
+
+        // Try common source set names
+        return listOf("main", "debug", "release", "demo", "prod").mapNotNull { variant ->
+            val altRoot = "$basePath$variant$suffix"
+            if (altRoot != sourceRoot && java.io.File(altRoot).isDirectory) altRoot else null
+        }
+    }
+
+    /**
+     * Recursively scan a directory for Kotlin files containing @Inject constructor classes.
+     */
+    private fun scanDirectoryForInjectClasses(
+        dir: java.io.File,
+        basePackage: String,
+        foundClassIds: MutableSet<ClassId>,
+        moduleClassId: ClassId,
+        results: MutableList<ModuleScanDefinitionInfo>
+    ) {
+        // Calculate the package for this directory
+        val currentPackage = basePackage + if (dir.name == basePackage.substringAfterLast('.')) "" else ""
+
+        dir.walkTopDown().forEach { file ->
+            if (!file.isFile || !file.name.endsWith(".kt")) return@forEach
+
+            // Derive package from directory relative to scan root
+            val relativePath = file.parentFile.toRelativeString(dir.parentFile)
+            val pkg = relativePath.replace(java.io.File.separatorChar, '.')
+
+            // Read the file and check for @Inject constructor
+            try {
+                val content = file.readText()
+                // Quick check: skip files without @Inject
+                if ("@Inject" !in content) return@forEach
+
+                // Extract class declarations with @Inject constructor
+                // Pattern: class <Name> @Inject constructor or class <Name> @jakarta.inject.Inject constructor
+                val classPattern = Regex("""class\s+(\w+)\s+@\S*Inject\s+constructor""")
+                for (match in classPattern.findAll(content)) {
+                    val className = match.groupValues[1]
+                    val classId = ClassId(FqName(pkg), Name.identifier(className))
+                    if (classId in foundClassIds) continue
+
+                    val symbol = session.symbolProvider.getClassLikeSymbolByClassId(classId)
+                        as? FirClassSymbol<*> ?: continue
+                    if (symbol.rawStatus.isExpect) continue
+
+                    // Verify with FIR that it actually has @Inject constructor
+                    if (!hasInjectConstructorFir(symbol)) continue
+
+                    val containingFileName = getContainingFileName(symbol) ?: continue
+                    foundClassIds.add(classId)
+                    log { "    + $classId (factory, @Inject constructor via subpackage scan)" }
+                    results.add(ModuleScanDefinitionInfo(moduleClassId, symbol, DEF_TYPE_FACTORY, containingFileName))
+                }
+            } catch (_: Exception) {}
+        }
     }
 
     /**

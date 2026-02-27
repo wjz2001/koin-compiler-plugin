@@ -88,7 +88,8 @@ class BindingRegistry {
             "android.content.Context",
             "android.app.Activity",
             "android.app.Application",
-            // AndroidX
+            // AndroidX - scope-provided components
+            "androidx.activity.ComponentActivity",
             "androidx.fragment.app.Fragment",
             "androidx.lifecycle.SavedStateHandle",
             "androidx.work.WorkerParameters",

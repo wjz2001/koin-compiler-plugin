@@ -672,8 +672,15 @@ class KoinAnnotationProcessor(
                 }
             }
 
-            // Compile-time safety: build full visibility set and validate
-            if (safetyValidator != null && definitions.isNotEmpty()) {
+            // Compile-time safety: build full visibility set and validate.
+            // Skip A2 for modules that are included by another local module — they'll
+            // be validated as part of the parent's visibility set (or at A3).
+            val isIncludedByOtherModule = moduleClasses.any { other ->
+                other != moduleClass && other.includedModules.any {
+                    it.fqNameWhenAvailable == moduleClass.irClass.fqNameWhenAvailable
+                }
+            }
+            if (safetyValidator != null && definitions.isNotEmpty() && !isIncludedByOtherModule) {
                 val allVisibleDefinitions = buildVisibleDefinitions(moduleClass, definitions, moduleDefinitions)
                 val moduleFqName = moduleClass.irClass.fqNameWhenAvailable?.asString()
                 safetyValidator.validate(
@@ -1221,9 +1228,20 @@ class KoinAnnotationProcessor(
             // Module class not on classpath — can't resolve. Try hints as best-effort.
             val modulePackage = FqName(moduleFqName).parent().asString()
             KoinPluginLogger.debug { "      Cannot resolve $moduleFqName, using package $modulePackage for hint discovery" }
-            definitions.addAll(discoverClassDefinitionsFromHints(listOf(modulePackage)))
-            definitions.addAll(discoverFunctionDefinitionsFromHints(listOf(modulePackage)))
-            return DependencyModuleResult(definitions, isComplete = false)
+
+            // Primary: module-scoped scan hints (componentscan_* / componentscanfunc_*)
+            // These work even when the module class isn't resolvable because they're looked up by name.
+            val scanDefs = discoverModuleScanDefinitions(moduleFqName)
+            definitions.addAll(scanDefs)
+
+            // Fallback: orphan hints (definition_* / definitionfunc_*) in the module's package
+            val existingFqNames = definitions.mapNotNull { it.returnTypeClass.fqNameWhenAvailable }.toSet()
+            val orphanDefs = discoverClassDefinitionsFromHints(listOf(modulePackage))
+            val orphanFuncDefs = discoverFunctionDefinitionsFromHints(listOf(modulePackage))
+            definitions.addAll(orphanDefs.filter { it.returnTypeClass.fqNameWhenAvailable !in existingFqNames })
+            definitions.addAll(orphanFuncDefs.filter { it.returnTypeClass.fqNameWhenAvailable !in existingFqNames })
+
+            return DependencyModuleResult(definitions, isComplete = definitions.isNotEmpty())
         }
 
         val moduleIrClass = moduleClassSymbol.owner
