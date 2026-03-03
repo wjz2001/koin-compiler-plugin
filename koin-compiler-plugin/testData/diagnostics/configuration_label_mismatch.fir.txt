@@ -39,8 +39,8 @@ FILE: /serviceModuleModule.kt
 FILE: org/koin/plugin/hints/coreModuleModule.kt
     package org.koin.plugin.hints
 
-    public final fun configuration_core(contributed: R|CoreModule|): R|kotlin/Unit|
+    @R|kotlin/Deprecated|(message = String(Koin compiler plugin internal hint function), level = Q|kotlin/DeprecationLevel|.R|kotlin/DeprecationLevel.HIDDEN|) public final fun configuration_core(contributed: R|CoreModule|): R|kotlin/Unit|
 FILE: org/koin/plugin/hints/serviceModuleModule.kt
     package org.koin.plugin.hints
 
-    public final fun configuration_service(contributed: R|ServiceModule|): R|kotlin/Unit|
+    @R|kotlin/Deprecated|(message = String(Koin compiler plugin internal hint function), level = Q|kotlin/DeprecationLevel|.R|kotlin/DeprecationLevel.HIDDEN|) public final fun configuration_service(contributed: R|ServiceModule|): R|kotlin/Unit|

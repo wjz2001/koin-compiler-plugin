@@ -32,4 +32,4 @@ FILE: /featureModuleModule.kt
 FILE: org/koin/plugin/hints/featureModuleModule.kt
     package org.koin.plugin.hints
 
-    public final fun configuration_default(contributed: R|FeatureModule|): R|kotlin/Unit|
+    @R|kotlin/Deprecated|(message = String(Koin compiler plugin internal hint function), level = Q|kotlin/DeprecationLevel|.R|kotlin/DeprecationLevel.HIDDEN|) public final fun configuration_default(contributed: R|FeatureModule|): R|kotlin/Unit|

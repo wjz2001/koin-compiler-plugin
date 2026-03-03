@@ -21,14 +21,27 @@ import org.jetbrains.kotlin.fir.types.constructClassLikeType
 import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.fir.types.coneTypeOrNull
 import org.jetbrains.kotlin.fir.types.constructType
+import org.jetbrains.kotlin.fir.declarations.FirCallableDeclaration
+import org.jetbrains.kotlin.fir.declarations.getDeprecationsProvider
+import org.jetbrains.kotlin.fir.deserialization.toQualifiedPropertyAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirAnnotationCall
 import org.jetbrains.kotlin.fir.expressions.FirVarargArgumentsExpression
 import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
+import org.jetbrains.kotlin.fir.expressions.builder.buildAnnotation
+import org.jetbrains.kotlin.fir.expressions.builder.buildAnnotationArgumentMapping
+import org.jetbrains.kotlin.fir.expressions.builder.buildEnumEntryDeserializedAccessExpression
+import org.jetbrains.kotlin.fir.expressions.builder.buildLiteralExpression
+import org.jetbrains.kotlin.fir.resolve.defaultType
+import org.jetbrains.kotlin.fir.symbols.impl.FirRegularClassSymbol
+import org.jetbrains.kotlin.fir.toFirResolvedTypeRef
+import org.jetbrains.kotlin.types.ConstantValueKind
+
 import org.jetbrains.kotlin.KtPsiSourceElement
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
+import org.jetbrains.kotlin.name.StandardClassIds
 import org.jetbrains.kotlin.platform.TargetPlatform
 import org.jetbrains.kotlin.platform.isJs
 import org.jetbrains.kotlin.platform.isWasm
@@ -325,6 +338,49 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
         if (platform.isWasm()) parts.add("wasm")
         if (parts.isEmpty()) parts.add("jvm")
         parts.joinToString("/").also { log { "Platform: $it" } }
+    }
+
+    /**
+     * Whether the current target is Kotlin/Native.
+     *
+     * On Native targets, hint functions in the synthetic `org.koin.plugin.hints` package must be
+     * skipped because they create IrFiles with no real source backing. The ObjC export header
+     * generator calls `findSourceFile()` on every package fragment, which throws
+     * `NotImplementedError` for synthetic-only fragments (no real .kt source file).
+     *
+     * Module extension functions (`.module()`) are NOT affected because they are placed in the
+     * same package as the @Module class, which always has real source files.
+     */
+    private val isNativeTarget: Boolean by lazy {
+        session.moduleData.platform.isNative()
+    }
+
+    /**
+     * Mark a FIR-generated hint function as @Deprecated(level = HIDDEN).
+     * This prevents the function from being exported to ObjC headers on Kotlin/Native,
+     * which would otherwise crash with "An operation is not implemented" in findSourceFile.
+     * Same approach used by Metro (https://github.com/ZacSweers/metro).
+     */
+    private fun FirCallableDeclaration.markAsDeprecatedHidden() {
+        val deprecatedSymbol = session.symbolProvider
+            .getClassLikeSymbolByClassId(StandardClassIds.Annotations.Deprecated) as? FirRegularClassSymbol
+            ?: return
+
+        val annotation = buildAnnotation {
+            annotationTypeRef = deprecatedSymbol.defaultType().toFirResolvedTypeRef()
+            argumentMapping = buildAnnotationArgumentMapping {
+                mapping[Name.identifier("message")] = buildLiteralExpression(
+                    null, ConstantValueKind.String,
+                    "Koin compiler plugin internal hint function", setType = true
+                )
+                mapping[Name.identifier("level")] = buildEnumEntryDeserializedAccessExpression {
+                    enumClassId = StandardClassIds.DeprecationLevel
+                    enumEntryName = Name.identifier("HIDDEN")
+                }.toQualifiedPropertyAccessExpression(session)
+            }
+        }
+        replaceAnnotations(annotations + listOf(annotation))
+        replaceDeprecationsProvider(getDeprecationsProvider(session))
     }
 
     // Cache of module classes found (@Module) - generates .module extension property
@@ -1032,33 +1088,42 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
         // Generate hint functions for @Configuration modules (cross-module discovery)
         // One function per label per configuration module in the hints package
         // Example: @Configuration("test", "prod") generates configuration_test and configuration_prod
-        // Using deterministic synthetic file names allows this to work on all platforms (Kotlin 2.3.20+)
-        val allLabels = mutableSetOf<String>()
-        configurationModules.forEach { configModule ->
-            allLabels.addAll(configModule.labels)
-        }
+        //
+        // SKIP on Native targets: hint functions in org.koin.plugin.hints create synthetic IrFiles
+        // that crash the ObjC export header generator (findSourceFile throws NotImplementedError).
+        // Cross-module discovery still works on Native because:
+        // - Module functions (.module()) are generated in all platforms
+        // - Hint functions from JVM/common compilations are available in the KLIB metadata
+        if (!isNativeTarget) {
+            val allLabels = mutableSetOf<String>()
+            configurationModules.forEach { configModule ->
+                allLabels.addAll(configModule.labels)
+            }
 
-        for (label in allLabels) {
-            callableIds.add(CallableId(HINTS_PACKAGE, hintFunctionNameForLabel(label)))
-        }
+            for (label in allLabels) {
+                callableIds.add(CallableId(HINTS_PACKAGE, hintFunctionNameForLabel(label)))
+            }
 
-        // Always include hints package with "default" label to trigger generateFunctions()
-        // for hint discovery. This ensures cross-module discovery happens even when there are no local
-        // @Module classes (e.g., test source sets discovering modules from main source sets)
-        callableIds.add(CallableId(HINTS_PACKAGE, hintFunctionNameForLabel(KoinConfigurationRegistry.DEFAULT_LABEL)))
+            // Always include hints package with "default" label to trigger generateFunctions()
+            // for hint discovery. This ensures cross-module discovery happens even when there are no local
+            // @Module classes (e.g., test source sets discovering modules from main source sets)
+            callableIds.add(CallableId(HINTS_PACKAGE, hintFunctionNameForLabel(KoinConfigurationRegistry.DEFAULT_LABEL)))
 
-        // Generate hint functions for definition classes and functions (cross-module discovery)
-        // Always include all definition types to trigger discovery from dependencies
-        for (defType in ALL_DEFINITION_TYPES) {
-            callableIds.add(CallableId(HINTS_PACKAGE, definitionHintFunctionName(defType)))
-            callableIds.add(CallableId(HINTS_PACKAGE, definitionFunctionHintFunctionName(defType)))
+            // Generate hint functions for definition classes and functions (cross-module discovery)
+            // Always include all definition types to trigger discovery from dependencies
+            for (defType in ALL_DEFINITION_TYPES) {
+                callableIds.add(CallableId(HINTS_PACKAGE, definitionHintFunctionName(defType)))
+                callableIds.add(CallableId(HINTS_PACKAGE, definitionFunctionHintFunctionName(defType)))
+            }
+        } else {
+            log { "Skipping hint function generation on Native target (ObjC export compatibility)" }
         }
 
         // Note: componentscan_* / componentscanfunc_* hints are now generated at IR time
         // using registerFunctionAsMetadataVisible (see KoinAnnotationProcessor.generateModuleScanHints).
         // This ensures complete discovery of @Inject constructor classes in subpackages.
 
-        log { "getTopLevelCallableIds() returning ${callableIds.size} callables (${moduleClasses.size} modules, labels=$allLabels, definitions=${definitionClassInfos.size}, functionDefs=${definitionFunctionInfos.size})" }
+        log { "getTopLevelCallableIds() returning ${callableIds.size} callables (${moduleClasses.size} modules, definitions=${definitionClassInfos.size}, functionDefs=${definitionFunctionInfos.size}, native=$isNativeTarget)" }
         return callableIds
     }
 
@@ -1104,7 +1169,7 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
                         containingFileName = effectiveFileName
                     ) {
                         valueParameter(Name.identifier("contributed"), moduleType)
-                    }.symbol
+                    }.apply { markAsDeprecatedHidden() }.symbol
                 }
             }
         }
@@ -1181,8 +1246,9 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
                         session.builtinTypes.unitType.coneType,
                         containingFileName = effectiveFileName
                     ) {
+                        // visibility stays public for cross-module discovery
                         valueParameter(Name.identifier("contributed"), classType)
-                    }.symbol
+                    }.apply { markAsDeprecatedHidden() }.symbol
                 }
             }
 
@@ -1212,8 +1278,9 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
                         session.builtinTypes.unitType.coneType,
                         containingFileName = containingFile
                     ) {
+                        // visibility stays public for cross-module discovery
                         valueParameter(Name.identifier("contributed"), returnClassType)
-                    }.symbol
+                    }.apply { markAsDeprecatedHidden() }.symbol
                 }
             }
 
