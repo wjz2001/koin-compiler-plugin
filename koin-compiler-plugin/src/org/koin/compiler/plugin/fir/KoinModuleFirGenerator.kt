@@ -86,6 +86,13 @@ import org.koin.compiler.plugin.KoinPluginConstants
 @OptIn(SymbolInternals::class, ExperimentalTopLevelDeclarationsGenerationApi::class, org.jetbrains.kotlin.fir.declarations.DirectDeclarationsAccess::class)
 class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExtension(session) {
 
+    init {
+        // Clear stale System properties from previous builds.
+        // Without this, @Configuration modules registered in a prior compilation persist
+        // across Gradle daemon reuse, causing phantom module visibility in A2/A3 validation.
+        KoinConfigurationRegistry.clear()
+    }
+
     companion object {
         // Annotations from koin-annotations library - use centralized registry
         private val MODULE_ANNOTATION = KoinAnnotationFqNames.MODULE
