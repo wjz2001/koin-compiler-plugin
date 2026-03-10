@@ -13,9 +13,9 @@ import org.jetbrains.kotlin.config.CompilerConfigurationKey
 object KoinConfigurationKeys {
     val USER_LOGS: CompilerConfigurationKey<Boolean> = CompilerConfigurationKey.create("koin.userLogs")
     val DEBUG_LOGS: CompilerConfigurationKey<Boolean> = CompilerConfigurationKey.create("koin.debugLogs")
-    val DSL_SAFETY_CHECKS: CompilerConfigurationKey<Boolean> = CompilerConfigurationKey.create("koin.dslSafetyChecks")
+    val UNSAFE_DSL_CHECKS: CompilerConfigurationKey<Boolean> = CompilerConfigurationKey.create("koin.unsafeDslChecks")
     val SKIP_DEFAULT_VALUES: CompilerConfigurationKey<Boolean> = CompilerConfigurationKey.create("koin.skipDefaultValues")
-    val SAFETY_CHECKS: CompilerConfigurationKey<Boolean> = CompilerConfigurationKey.create("koin.safetyChecks")
+    val COMPILE_SAFETY: CompilerConfigurationKey<Boolean> = CompilerConfigurationKey.create("koin.compileSafety")
 }
 
 @Suppress("unused") // Used via reflection.
@@ -24,9 +24,9 @@ class KoinCommandLineProcessor : CommandLineProcessor {
         // Use shared constants from KoinPluginConstants
         const val OPTION_USER_LOGS = KoinPluginConstants.OPTION_USER_LOGS
         const val OPTION_DEBUG_LOGS = KoinPluginConstants.OPTION_DEBUG_LOGS
-        const val OPTION_DSL_SAFETY_CHECKS = KoinPluginConstants.OPTION_DSL_SAFETY_CHECKS
+        const val OPTION_UNSAFE_DSL_CHECKS = KoinPluginConstants.OPTION_UNSAFE_DSL_CHECKS
         const val OPTION_SKIP_DEFAULT_VALUES = KoinPluginConstants.OPTION_SKIP_DEFAULT_VALUES
-        const val OPTION_SAFETY_CHECKS = KoinPluginConstants.OPTION_SAFETY_CHECKS
+        const val OPTION_COMPILE_SAFETY = KoinPluginConstants.OPTION_COMPILE_SAFETY
     }
 
     override val pluginId: String = BuildConfig.KOTLIN_PLUGIN_ID
@@ -45,9 +45,9 @@ class KoinCommandLineProcessor : CommandLineProcessor {
             required = false
         ),
         CliOption(
-            optionName = OPTION_DSL_SAFETY_CHECKS,
+            optionName = OPTION_UNSAFE_DSL_CHECKS,
             valueDescription = "<true|false>",
-            description = "Enable DSL safety checks (validates create() is the only instruction in lambda)",
+            description = "Enable unsafe DSL checks (validates create() is the only instruction in lambda)",
             required = false
         ),
         CliOption(
@@ -57,7 +57,7 @@ class KoinCommandLineProcessor : CommandLineProcessor {
             required = false
         ),
         CliOption(
-            optionName = OPTION_SAFETY_CHECKS,
+            optionName = OPTION_COMPILE_SAFETY,
             valueDescription = "<true|false>",
             description = "Enable compile-time dependency safety checks (validates all required dependencies are provided)",
             required = false
@@ -68,9 +68,9 @@ class KoinCommandLineProcessor : CommandLineProcessor {
         when (option.optionName) {
             OPTION_USER_LOGS -> configuration.put(KoinConfigurationKeys.USER_LOGS, value.toBoolean())
             OPTION_DEBUG_LOGS -> configuration.put(KoinConfigurationKeys.DEBUG_LOGS, value.toBoolean())
-            OPTION_DSL_SAFETY_CHECKS -> configuration.put(KoinConfigurationKeys.DSL_SAFETY_CHECKS, value.toBoolean())
+            OPTION_UNSAFE_DSL_CHECKS -> configuration.put(KoinConfigurationKeys.UNSAFE_DSL_CHECKS, value.toBoolean())
             OPTION_SKIP_DEFAULT_VALUES -> configuration.put(KoinConfigurationKeys.SKIP_DEFAULT_VALUES, value.toBoolean())
-            OPTION_SAFETY_CHECKS -> configuration.put(KoinConfigurationKeys.SAFETY_CHECKS, value.toBoolean())
+            OPTION_COMPILE_SAFETY -> configuration.put(KoinConfigurationKeys.COMPILE_SAFETY, value.toBoolean())
             else -> error("Unexpected config option: '${option.optionName}'")
         }
     }

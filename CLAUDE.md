@@ -166,15 +166,15 @@ Each test file has golden files (`*.fir.txt`, `*.fir.ir.txt`) containing expecte
 koinCompiler {
     userLogs = true           // Component detection logs
     debugLogs = true          // Internal processing logs (verbose)
-    dslSafetyChecks = true    // Validates create() is the only instruction in lambda (default: true)
+    unsafeDslChecks = true    // Validates create() is the only instruction in lambda (default: true)
     skipDefaultValues = true  // Skip injection for parameters with default values (default: true)
-    safetyChecks = true       // Compile-time dependency validation (default: true)
+    compileSafety = true       // Compile-time dependency validation (default: true)
 }
 ```
 
 ### DSL Safety Checks
 
-When `dslSafetyChecks` is enabled (default), the plugin validates that `create(::T)` is the only instruction inside lambdas. This ensures proper dependency injection patterns:
+When `unsafeDslChecks` is enabled (default), the plugin validates that `create(::T)` is the only instruction inside lambdas. This ensures proper dependency injection patterns:
 
 ```kotlin
 // Valid - create() is the only instruction
@@ -187,7 +187,7 @@ scoped {
 }
 ```
 
-Set `dslSafetyChecks = false` when migrating from legacy DSL code that has additional statements in create lambdas.
+Set `unsafeDslChecks = false` when migrating from legacy DSL code that has additional statements in create lambdas.
 
 ### Skip Default Values
 

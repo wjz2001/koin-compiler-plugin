@@ -82,7 +82,7 @@ fun main() {
 koinCompiler {
     userLogs = true           // Log component detection
     debugLogs = true          // Log internal processing (verbose)
-    dslSafetyChecks = true    // Validates create() is the only instruction in lambda (default: true)
+    unsafeDslChecks = true    // Validates create() is the only instruction in lambda (default: true)
     skipDefaultValues = true  // Skip injection for parameters with default values (default: true)
 }
 ```

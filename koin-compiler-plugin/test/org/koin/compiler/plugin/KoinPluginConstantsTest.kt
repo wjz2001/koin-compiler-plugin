@@ -13,8 +13,8 @@ class KoinPluginConstantsTest {
     fun `option keys are correct`() {
         assertEquals("userLogs", KoinPluginConstants.OPTION_USER_LOGS)
         assertEquals("debugLogs", KoinPluginConstants.OPTION_DEBUG_LOGS)
-        assertEquals("dslSafetyChecks", KoinPluginConstants.OPTION_DSL_SAFETY_CHECKS)
-        assertEquals("safetyChecks", KoinPluginConstants.OPTION_SAFETY_CHECKS)
+        assertEquals("unsafeDslChecks", KoinPluginConstants.OPTION_UNSAFE_DSL_CHECKS)
+        assertEquals("compileSafety", KoinPluginConstants.OPTION_COMPILE_SAFETY)
     }
 
     @Test

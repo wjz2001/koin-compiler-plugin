@@ -33,11 +33,11 @@ open class KoinGradleExtension(objectFactory: ObjectFactory) {
     val debugLogs: Property<Boolean> = objectFactory.property(Boolean::class.java).convention(false)
 
     /**
-     * Enable DSL safety checks (default: true).
+     * Enable unsafe DSL checks (default: true).
      * When enabled, validates that create() calls inside lambdas are the only instruction.
      * Set to false when migrating from legacy DSL code that has other statements in create lambdas.
      */
-    val dslSafetyChecks: Property<Boolean> = objectFactory.property(Boolean::class.java).convention(true)
+    val unsafeDslChecks: Property<Boolean> = objectFactory.property(Boolean::class.java).convention(true)
 
     /**
      * Skip injection for parameters with default values (default: true).
@@ -56,5 +56,5 @@ open class KoinGradleExtension(objectFactory: ObjectFactory) {
      * will cause a compilation error.
      * Set to false to disable validation (e.g., when dependencies are provided by external modules).
      */
-    val safetyChecks: Property<Boolean> = objectFactory.property(Boolean::class.java).convention(true)
+    val compileSafety: Property<Boolean> = objectFactory.property(Boolean::class.java).convention(true)
 }

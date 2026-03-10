@@ -16,9 +16,9 @@ class KoinGradlePlugin : KotlinCompilerPluginSupportPlugin {
         // koin-compiler-gradle-plugin on koin-compiler-plugin at Gradle configuration time
         const val OPTION_USER_LOGS = "userLogs"
         const val OPTION_DEBUG_LOGS = "debugLogs"
-        const val OPTION_DSL_SAFETY_CHECKS = "dslSafetyChecks"
+        const val OPTION_UNSAFE_DSL_CHECKS = "unsafeDslChecks"
         const val OPTION_SKIP_DEFAULT_VALUES = "skipDefaultValues"
-        const val OPTION_SAFETY_CHECKS = "safetyChecks"
+        const val OPTION_COMPILE_SAFETY = "compileSafety"
     }
 
     override fun apply(target: Project) {
@@ -45,9 +45,9 @@ class KoinGradlePlugin : KotlinCompilerPluginSupportPlugin {
             listOf(
                 SubpluginOption(OPTION_USER_LOGS, extension.userLogs.get().toString()),
                 SubpluginOption(OPTION_DEBUG_LOGS, extension.debugLogs.get().toString()),
-                SubpluginOption(OPTION_DSL_SAFETY_CHECKS, extension.dslSafetyChecks.get().toString()),
+                SubpluginOption(OPTION_UNSAFE_DSL_CHECKS, extension.unsafeDslChecks.get().toString()),
                 SubpluginOption(OPTION_SKIP_DEFAULT_VALUES, extension.skipDefaultValues.get().toString()),
-                SubpluginOption(OPTION_SAFETY_CHECKS, extension.safetyChecks.get().toString())
+                SubpluginOption(OPTION_COMPILE_SAFETY, extension.compileSafety.get().toString())
             )
         }
     }

@@ -18,14 +18,14 @@ object KoinPluginConstants {
     /** Option to enable debug logs (internal plugin processing). */
     const val OPTION_DEBUG_LOGS = "debugLogs"
 
-    /** Option to enable DSL safety checks (validates create() is the only instruction in lambda). */
-    const val OPTION_DSL_SAFETY_CHECKS = "dslSafetyChecks"
+    /** Option to enable unsafe DSL checks (validates create() is the only instruction in lambda). */
+    const val OPTION_UNSAFE_DSL_CHECKS = "unsafeDslChecks"
 
     /** Option to skip injection for parameters with default values. */
     const val OPTION_SKIP_DEFAULT_VALUES = "skipDefaultValues"
 
     /** Option to enable compile-time dependency safety checks. */
-    const val OPTION_SAFETY_CHECKS = "safetyChecks"
+    const val OPTION_COMPILE_SAFETY = "compileSafety"
 
     // ================================================================================
     // Definition Types - Used for hint functions and logging

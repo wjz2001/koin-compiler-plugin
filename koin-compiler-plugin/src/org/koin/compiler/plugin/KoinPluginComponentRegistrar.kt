@@ -40,7 +40,7 @@ object KoinPluginLogger {
         private set
 
     @Volatile
-    var dslSafetyChecksEnabled: Boolean = true
+    var unsafeDslChecksEnabled: Boolean = true
         private set
 
     @Volatile
@@ -48,7 +48,7 @@ object KoinPluginLogger {
         private set
 
     @Volatile
-    var safetyChecksEnabled: Boolean = true
+    var compileSafetyEnabled: Boolean = true
         private set
 
     /** LookupTracker from compiler configuration, for direct IC lookup recording. */
@@ -59,13 +59,13 @@ object KoinPluginLogger {
     /**
      * Initialize the logger with configuration from the compiler.
      */
-    fun init(collector: MessageCollector, userLogs: Boolean, debugLogs: Boolean, dslSafetyChecks: Boolean = true, skipDefaultValues: Boolean = true, safetyChecks: Boolean = true, lookupTracker: LookupTracker? = null) {
+    fun init(collector: MessageCollector, userLogs: Boolean, debugLogs: Boolean, unsafeDslChecks: Boolean = true, skipDefaultValues: Boolean = true, compileSafety: Boolean = true, lookupTracker: LookupTracker? = null) {
         messageCollector = collector
         userLogsEnabled = userLogs
         debugLogsEnabled = debugLogs
-        dslSafetyChecksEnabled = dslSafetyChecks
+        unsafeDslChecksEnabled = unsafeDslChecks
         skipDefaultValuesEnabled = skipDefaultValues
-        safetyChecksEnabled = safetyChecks
+        compileSafetyEnabled = compileSafety
         this.lookupTracker = lookupTracker
     }
 
@@ -162,15 +162,15 @@ class KoinPluginComponentRegistrar: CompilerPluginRegistrar() {
         val messageCollector = configuration.get(CommonConfigurationKeys.MESSAGE_COLLECTOR_KEY, MessageCollector.NONE)
         val userLogs = configuration.get(KoinConfigurationKeys.USER_LOGS, false)
         val debugLogs = configuration.get(KoinConfigurationKeys.DEBUG_LOGS, false)
-        val dslSafetyChecks = configuration.get(KoinConfigurationKeys.DSL_SAFETY_CHECKS, true)
+        val unsafeDslChecks = configuration.get(KoinConfigurationKeys.UNSAFE_DSL_CHECKS, true)
         val skipDefaultValues = configuration.get(KoinConfigurationKeys.SKIP_DEFAULT_VALUES, true)
-        val safetyChecks = configuration.get(KoinConfigurationKeys.SAFETY_CHECKS, true)
+        val compileSafety = configuration.get(KoinConfigurationKeys.COMPILE_SAFETY, true)
 
         // IC trackers for incremental compilation support
         val lookupTracker = configuration.get(CommonConfigurationKeys.LOOKUP_TRACKER)
 
         // Initialize the centralized logger (includes lookupTracker for FIR-level IC recording)
-        KoinPluginLogger.init(messageCollector, userLogs, debugLogs, dslSafetyChecks, skipDefaultValues, safetyChecks, lookupTracker)
+        KoinPluginLogger.init(messageCollector, userLogs, debugLogs, unsafeDslChecks, skipDefaultValues, compileSafety, lookupTracker)
         val expectActualTracker = configuration.get(
             CommonConfigurationKeys.EXPECT_ACTUAL_TRACKER,
             ExpectActualTracker.DoNothing

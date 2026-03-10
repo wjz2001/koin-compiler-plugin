@@ -37,8 +37,8 @@ class KoinDSLTransformer(
     private val lookupTracker: LookupTracker? = null
 ) : IrElementTransformerVoid() {
 
-    private val dslSafetyChecksEnabled = KoinPluginLogger.dslSafetyChecksEnabled
-    private val safetyChecksEnabled = KoinPluginLogger.safetyChecksEnabled
+    private val unsafeDslChecksEnabled = KoinPluginLogger.unsafeDslChecksEnabled
+    private val compileSafetyEnabled = KoinPluginLogger.compileSafetyEnabled
     private var currentFile: IrFile? = null
 
     // ── Collected DSL definitions (for A3 full-graph validation) ──
@@ -147,7 +147,7 @@ class KoinDSLTransformer(
         val functionName = callee.name
 
         // Collect call-site validations (koinViewModel<T>(), get<T>(), inject<T>(), etc.)
-        if (safetyChecksEnabled) {
+        if (compileSafetyEnabled) {
             collectCallSiteIfResolutionFunction(expression, callee)
         }
 
@@ -265,7 +265,7 @@ class KoinDSLTransformer(
 
         // Collect DSL definition for safety validation
         val defType = definitionTypeMap[functionName]
-        if (defType != null && safetyChecksEnabled) {
+        if (defType != null && compileSafetyEnabled) {
             _dslDefinitions.add(Definition.DslDef(
                 irClass = targetClass,
                 definitionType = defType,
@@ -343,7 +343,7 @@ class KoinDSLTransformer(
         scopeReceiver: IrExpression
     ): IrExpression {
         // Validate that create() is the only instruction in the lambda (if enabled)
-        if (dslSafetyChecksEnabled) {
+        if (unsafeDslChecksEnabled) {
             validateCreateInLambda(call, referencedFunction)
         }
 
@@ -356,7 +356,7 @@ class KoinDSLTransformer(
                 trackClassLookup(lookupTracker, currentFile, targetClass)
                 // Collect DSL definition from create(::T) based on enclosing definition call
                 val enclosingDefType = currentDefinitionCall?.let { definitionTypeMap[it] }
-                if (enclosingDefType != null && safetyChecksEnabled) {
+                if (enclosingDefType != null && compileSafetyEnabled) {
                     _dslDefinitions.add(Definition.DslDef(
                         irClass = targetClass,
                         definitionType = enclosingDefType,
@@ -425,7 +425,7 @@ class KoinDSLTransformer(
             KoinPluginLogger.error(
                 "create(::$targetName) must be the only instruction in the lambda. " +
                 "Other statements are not allowed when using create(). " +
-                "To disable this check, set koinCompiler { dslSafetyChecks = false } in your build.gradle.kts"
+                "To disable this check, set koinCompiler { unsafeDslChecks = false } in your build.gradle.kts"
             )
         }
     }

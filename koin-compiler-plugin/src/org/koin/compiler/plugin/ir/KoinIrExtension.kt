@@ -26,7 +26,7 @@ class KoinIrExtension(
 
         // Shared qualifier extractor and optional safety validator
         val qualifierExtractor = QualifierExtractor(pluginContext)
-        val safetyValidator = if (KoinPluginLogger.safetyChecksEnabled) {
+        val safetyValidator = if (KoinPluginLogger.compileSafetyEnabled) {
             KoinPluginLogger.debug { "Compile safety: ENABLED (skipDefaultValues=${KoinPluginLogger.skipDefaultValuesEnabled})" }
             CompileSafetyValidator(qualifierExtractor)
         } else {

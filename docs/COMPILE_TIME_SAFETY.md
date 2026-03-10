@@ -150,11 +150,11 @@ Both `@Provided` and the whitelist are checked before reporting a missing depend
 
 ```kotlin
 koinCompiler {
-    safetyChecks = true   // Enable/disable compile-time safety checks (default: true)
+    compileSafety = true   // Enable/disable compile-time safety checks (default: true)
 }
 ```
 
-Safety checks are gated by `KoinPluginLogger.safetyChecksEnabled`, controlled by the `safetyChecks` Gradle option.
+Safety checks are gated by `KoinPluginLogger.compileSafetyEnabled`, controlled by the `compileSafety` Gradle option.
 
 ---
 
@@ -335,7 +335,7 @@ if (configLabels.isNotEmpty()) {
 In `KoinStartTransformer.visitCall()`, after discovering all modules from `@KoinApplication`:
 
 ```kotlin
-if (KoinPluginLogger.safetyChecksEnabled && moduleClasses.isNotEmpty() && annotationProcessor != null) {
+if (KoinPluginLogger.compileSafetyEnabled && moduleClasses.isNotEmpty() && annotationProcessor != null) {
     validateFullGraph(appClass, moduleClasses)
 }
 ```

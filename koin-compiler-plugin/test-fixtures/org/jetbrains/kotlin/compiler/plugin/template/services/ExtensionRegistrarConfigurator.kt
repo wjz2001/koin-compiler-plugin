@@ -58,7 +58,7 @@ private class ExtensionRegistrarConfigurator(testServices: TestServices) : Envir
         val rawCollector = configuration.get(CommonConfigurationKeys.MESSAGE_COLLECTOR_KEY, MessageCollector.NONE)
         val messageCollector = CapturingMessageCollector(rawCollector)
         // Initialize the logger for tests (enable both user and debug logs)
-        KoinPluginLogger.init(messageCollector, userLogs = true, debugLogs = true, safetyChecks = true)
+        KoinPluginLogger.init(messageCollector, userLogs = true, debugLogs = true, compileSafety = true)
         FirExtensionRegistrarAdapter.registerExtension(KoinPluginRegistrar())
         IrGenerationExtension.registerExtension(KoinIrExtension(lookupTracker = null, expectActualTracker = org.jetbrains.kotlin.incremental.components.ExpectActualTracker.DoNothing))
     }
