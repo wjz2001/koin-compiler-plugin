@@ -62,7 +62,11 @@ META-INF/services/
 │  │   1. Scans for @Module @ComponentScan classes via predicate          │   │
 │  │   2. GENERATES declarations (no bodies yet):                         │   │
 │  │      - val MyModule.module: Module (extension property)              │   │
-│  │      - fun org.koin.plugin.hints.configuration_default(...)          │   │
+│  │      - fun configuration_<label>(contributed: T) hints               │   │
+│  │      - fun definition_<type>(contributed: T) for annotated classes   │   │
+│  │      - fun definition_function_<type>(contributed: T) for @Module fns│   │
+│  │      - fun moduledef_<module>_<func>(contributed: T) per-function    │   │
+│  │      - fun qualifier(contributed: T) for custom @Qualifier classes   │   │
 │  │   3. Discovers @Configuration modules from JARs via hint functions   │   │
 │  │   4. Populates KoinConfigurationRegistry with module names           │   │
 │  │                                                                       │   │
@@ -77,12 +81,13 @@ META-INF/services/
 │  │ PHASE 3: IR (Intermediate Representation)                            │   │
 │  │   File: KoinIrExtension.kt                                 │   │
 │  │                                                                       │   │
-│  │   Sub-phase 0: KoinHintTransformer                                 │   │
+│  │   Phase 0: KoinHintTransformer (full tree walk)                      │   │
 │  │     └── Fills bodies for FIR-generated hint functions                │   │
 │  │         - configuration(contributed: Module) → error("Stub!")        │   │
+│  │         - definition, moduledef, qualifier hints                     │   │
 │  │         - Registers hints as metadata-visible for cross-module       │   │
 │  │                                                                       │   │
-│  │   Sub-phase 1: KoinAnnotationProcessor                               │   │
+│  │   Phase 1: KoinAnnotationProcessor (full tree walk)                  │   │
 │  │     └── Scans @Singleton/@Factory/@KoinViewModel on:                 │   │
 │  │         - Classes                                                     │   │
 │  │         - Functions inside @Module classes                            │   │
@@ -98,17 +103,39 @@ META-INF/services/
 │  │             buildSingle(C::class, null) { provideC(get()) }  // fn   │   │
 │  │         }                                                             │   │
 │  │                                                                       │   │
-│  │   Sub-phase 2: KoinDSLTransformer                             │   │
+│  │   Phase 2: KoinDSLTransformer (full tree walk)                       │   │
 │  │     └── Transforms DSL calls:                                        │   │
 │  │         single<T>() → buildSingle(T::class, null) { T(get()) }       │   │
 │  │         scope.create(::T) → T(scope.get(), scope.get())              │   │
+│  │     └── Collects DslDef definitions for safety graph                 │   │
+│  │     └── Collects PendingCallSiteValidation for get<T>(), inject<T>() │   │
 │  │                                                                       │   │
-│  │   Sub-phase 3: KoinStartTransformer                              │   │
+│  │   Phase 2.5: generateDslDefinitionHints() (no tree walk)             │   │
+│  │     └── Generates dsl_single, dsl_factory hint functions             │   │
+│  │         for cross-module DSL discovery (iterates collected list)      │   │
+│  │                                                                       │   │
+│  │   Phase 3: KoinStartTransformer (full tree walk)                     │   │
 │  │     └── Transforms app entry points:                                 │   │
 │  │         startKoin<MyApp>() → startKoinWith(modules, lambda)          │   │
 │  │         - Discovers @Configuration modules                           │   │
 │  │         - Injects modules from @KoinApplication annotation           │   │
 │  │         - A3: validates full assembled graph (compile-time safety)    │   │
+│  │                                                                       │   │
+│  │   Phase 3.1: validateDslDefinitionGraph() (no tree walk)             │   │
+│  │     └── DSL-only A3 validation when startKoin{} exists               │   │
+│  │         but no startKoin<T>() / @KoinApplication                     │   │
+│  │                                                                       │   │
+│  │   Phase 3.5: validatePendingCallSites() (no tree walk)               │   │
+│  │     └── Validates get<T>(), inject<T>(), koinViewModel<T>()          │   │
+│  │         call sites against assembled graph + DSL definitions          │   │
+│  │                                                                       │   │
+│  │   Phase 3.6: validateCallSiteHintsFromDependencies() (no tree walk)  │   │
+│  │     └── Validates deferred call-site hints from feature modules      │   │
+│  │         against all known definitions                                 │   │
+│  │                                                                       │   │
+│  │   Phase 4: KoinMonitorTransformer (full tree walk)                   │   │
+│  │     └── Processes @Monitor annotated functions                       │   │
+│  │         Wraps function bodies with trace calls                       │   │
 │  └──────────────────────────────────────────────────────────────────────┘   │
 │                              ↓                                               │
 │  ┌──────────────────────────────────────────────────────────────────────┐   │
@@ -135,6 +162,7 @@ This is why `.module` property is declared in FIR but its body is filled in IR.
 | `KoinPluginConstants.kt` | Shared option keys, definition types, hint prefixes. Single source of truth. |
 | `KoinAnnotationFqNames.kt` | Centralized FqName registry for all Koin, Jakarta, and Javax annotations. |
 | `PropertyValueRegistry.kt` | Stores @PropertyValue defaults for property injection. |
+| `ProvidedTypeRegistry.kt` | Stores @Provided types, skipped during safety validation. |
 | `KoinPluginLogger.kt` | Centralized logging with user/debug levels. Defined in `KoinPluginComponentRegistrar.kt`. |
 
 ### FIR Phase
@@ -148,18 +176,21 @@ This is why `.module` property is declared in FIR but its body is filled in IR.
 
 | File | Purpose |
 |------|---------|
-| `KoinIrExtension.kt` | Orchestrates all IR transformers in correct order. |
+| `KoinIrExtension.kt` | Orchestrates all IR transformers in correct order (Phases 0-4 + validation phases). |
 | `KoinHintTransformer.kt` | Fills bodies for FIR-generated hint functions. |
 | `KoinAnnotationProcessor.kt` | Processes @Singleton/@Factory on classes, module functions, and top-level functions. Fills `.module` body. Runs A1/A2 safety validation. |
-| `KoinDSLTransformer.kt` | Transforms `single<T>()` DSL calls. Uses `TransformContext` for state management. |
+| `KoinDSLTransformer.kt` | Transforms `single<T>()` DSL calls. Collects `DslDef` definitions and `PendingCallSiteValidation` entries. |
 | `KoinStartTransformer.kt` | Transforms `startKoin<MyApp>()` calls. Runs A3 full-graph validation. |
+| `KoinMonitorTransformer.kt` | Processes `@Monitor` annotated functions, wraps bodies with trace calls. |
+| `CompileSafetyValidator.kt` | Orchestrates A2/A3 safety validation, manages assembled graph types, tracks validated modules. |
+| `DefinitionCallBuilder.kt` | Builds definition call IR (`buildSingle`, `buildFactory`, etc.) for annotation-based definitions. |
+| `AnnotationModels.kt` | `Definition` sealed class hierarchy (`ClassDef`, `FunctionDef`, `TopLevelFunctionDef`, `DslDef`, `ExternalFunctionDef`), plus `ModuleClass`, `DefinitionClass`, etc. |
 | `QualifierExtractor.kt` | Extracts qualifier annotations (`@Named`, `@Qualifier`). Used by both DSL and annotation processors. |
 | `LambdaBuilder.kt` | Creates lambda expressions with proper scope/parameter handling. |
 | `ScopeBlockBuilder.kt` | Builds `scope { }` DSL blocks for scoped definitions. |
 | `BindingRegistry.kt` | Compile-time safety validation engine. Matches requirements against provided types. |
 | `ParameterAnalyzer.kt` | Classifies constructor/function parameters for safety validation. |
 | `ConfigurationUtils.kt` | Shared `@Configuration` label extraction for A2/A3 validation. |
-| `AnnotationModels.kt` | Data models: `Definition` sealed class, `ModuleClass`, `DefinitionClass`, etc. |
 
 ### Cross-Phase
 
@@ -204,6 +235,28 @@ enum class DefinitionType {
     SINGLE, FACTORY, SCOPED, VIEW_MODEL, WORKER
 }
 ```
+
+### Definition (Unified Abstraction)
+
+```kotlin
+sealed class Definition {
+    class ClassDef(...)              // @Singleton/@Factory on classes
+    class FunctionDef(...)           // Functions inside @Module classes
+    class TopLevelFunctionDef(...)   // Top-level annotated functions
+    class DslDef(...)                // DSL definitions (single<T>, factory<T>)
+    class ExternalFunctionDef(...)   // Cross-module function definitions from hints
+
+    abstract val definitionType: DefinitionType
+    abstract val returnTypeClass: IrClass
+    abstract val bindings: List<IrClass>
+    abstract val scopeClass: IrClass?
+    abstract val scopeArchetype: ScopeArchetype?
+    abstract val createdAtStart: Boolean
+}
+```
+
+Used by `CompileSafetyValidator`, `BindingRegistry`, and `KoinStartTransformer` to uniformly handle
+all definition sources during graph validation.
 
 ### KoinDSLTransformer
 
@@ -255,20 +308,38 @@ actual abstract class ViewModel
 
 ## Cross-Module Discovery
 
-The plugin uses hint functions for cross-module `@Configuration` discovery:
+The plugin uses hint functions in `org.koin.plugin.hints` for cross-module discovery.
+All hint types follow the same pattern: FIR generates the declaration, IR fills the body
+and registers it as metadata-visible, downstream modules query via `symbolProvider` or
+`referenceFunctions()`.
 
-1. **Hint Generation**: For each `@Configuration` module, generate:
+### Hint Types
+
+| Hint prefix | Generated by | Purpose |
+|---|---|---|
+| `configuration_<label>` | FIR | `@Configuration` module discovery for `startKoin<T>()` |
+| `definition_<type>` | FIR | Annotated class definitions (`@Singleton`, `@Factory`, etc.) |
+| `definition_function_<type>` | FIR | Annotated functions inside `@Module` classes |
+| `moduledef_<module>_<func>` | FIR | Per-function definitions inside `@Module` classes |
+| `componentscan_<type>` | FIR | `@ComponentScan`-discovered class definitions |
+| `componentscanfunc_<type>` | FIR | `@ComponentScan`-discovered top-level function definitions |
+| `qualifier` | FIR | Custom `@Qualifier` annotation classes |
+| `dsl_<type>` | IR (Phase 2.5) | DSL definitions (`single<T>`, `factory<T>`, etc.) |
+| `callsite` | IR (Phase 3.5) | Deferred call-site validation from feature modules |
+
+### Flow
+
+1. **Hint Generation**: FIR or IR generates a stub function with a typed `contributed` parameter:
    ```kotlin
-   // In org.koin.plugin.hints package
    fun configuration_default(contributed: MyModule): Unit = error("Stub!")
    ```
 
-2. **Metadata Registration**: In IR phase, register hints as metadata-visible:
+2. **Metadata Registration**: IR phase registers hints as metadata-visible:
    ```kotlin
    context.metadataDeclarationRegistrar.registerFunctionAsMetadataVisible(declaration)
    ```
 
-3. **Discovery**: Downstream modules query hints via FIR symbolProvider:
+3. **Discovery**: Downstream modules query hints via FIR symbolProvider or IR referenceFunctions:
    ```kotlin
    session.symbolProvider.getTopLevelFunctionSymbols(
        FqName("org.koin.plugin.hints"),
@@ -277,6 +348,35 @@ The plugin uses hint functions for cross-module `@Configuration` discovery:
    ```
 
 See [PLUGIN_HINTS.md](PLUGIN_HINTS.md) for detailed documentation.
+
+## Tree Walk Analysis
+
+The IR phase consists of 9 sub-phases. Five perform full tree walks (visiting every IR node),
+and four iterate pre-collected lists with zero tree walking.
+
+### Full tree walks (5)
+
+| Phase | Transformer | Purpose |
+|-------|-------------|---------|
+| 0 | `KoinHintTransformer` | Fill bodies for FIR-generated hint functions |
+| 1 | `KoinAnnotationProcessor` | Collect annotations, fill `.module` bodies, A1/A2 validation |
+| 2 | `KoinDSLTransformer` | Transform DSL calls + collect `DslDef` + collect `PendingCallSiteValidation` |
+| 3 | `KoinStartTransformer` | Transform `startKoin<T>()`/`koinApplication<T>()` + A3 validation |
+| 4 | `KoinMonitorTransformer` | Process `@Monitor` annotations |
+
+### Zero-walk phases (4)
+
+| Phase | Function | Input |
+|-------|----------|-------|
+| 2.5 | `generateDslDefinitionHints()` | Iterates `dslDefinitions` list from Phase 2 |
+| 3.1 | `validateDslDefinitionGraph()` | Iterates `dslDefinitions` + dependency hints |
+| 3.5 | `validatePendingCallSites()` | Iterates `pendingCallSites` list from Phase 2 |
+| 3.6 | `validateCallSiteHintsFromDependencies()` | Queries hint functions via `referenceFunctions()` |
+
+### Double-duty phases
+
+- **Phase 2** does triple duty: DSL transformation + `DslDef` collection + call-site collection
+- **Phase 3** does double duty: `startKoin` transformation + A3 full-graph validation
 
 ## KMP Multiplatform Handling
 

@@ -35,7 +35,7 @@ class MyService(val repo: Repository)
 
 ## Validation Scopes
 
-Validation runs at three levels, each widening what is visible:
+Validation runs at multiple levels, each widening what is visible:
 
 ### A1: Per-Module (local + includes)
 
@@ -80,6 +80,36 @@ object MyApp
 startKoin<MyApp> { }
 // Validates: ALL definitions from CoreModule + ServiceModule combined
 ```
+
+### A4: Call-Site Validation
+
+Validates resolution call sites: `get<T>()`, `inject<T>()`, `koinViewModel<T>()`, etc. These are calls outside of module definitions that resolve a type from the DI container at runtime.
+
+```kotlin
+// In an Activity or Fragment:
+val service: MyService by inject()
+// Validates: MyService is available in the assembled graph
+```
+
+Call sites are collected during Phase 2 (`KoinDSLTransformer.collectCallSiteIfResolutionFunction`) and validated in Phase 3.5 against the assembled graph, DSL definitions, and dependency hints.
+
+When a call site cannot be resolved locally (e.g., in a feature module without the full graph), it generates a `callsite(required: T)` hint function for deferred validation. The app module discovers and validates these hints in Phase 3.6.
+
+### Phase 3.1: DSL-Only A3
+
+When `startKoin { }` is present but no `startKoin<T>()` or `@KoinApplication` is used, Phase 3.1 performs A3-style validation on DSL definitions only. It validates constructor parameters of local DSL definitions (`single<T>()`, `factory<T>()`, etc.) against all known providers (local DSL + dependency DSL hints + annotation definitions). This catches missing definitions like commenting out `single<Repository>()` that a ViewModel needs.
+
+Only runs in the entry-point module (the one that calls `startKoin { }`) to avoid false positives in leaf modules that don't have the full graph visible.
+
+### Phase 3.5: Pending Call-Site Validation with Deferred Hint Generation
+
+After all definitions are collected and `startKoin` is processed, pending call sites are validated against the combined set of assembled graph types, DSL definitions, and DSL hints from dependencies.
+
+Unresolved call sites in modules without a full graph generate `callsite(required: T)` hint functions in `org.koin.plugin.hints`. These hints are synthetic IR functions that encode the required type as a parameter, allowing downstream modules to discover and validate them.
+
+### Phase 3.6: Cross-Module Call-Site Hint Validation
+
+The app module (or any module with all definitions visible) discovers call-site hints from dependency modules via `context.referenceFunctions(callsite)` and validates each required type against the full set of known definitions. This completes the deferred validation started in Phase 3.5.
 
 ## Error Messages
 
@@ -162,24 +192,50 @@ Safety checks are gated by `KoinPluginLogger.compileSafetyEnabled`, controlled b
 
 ## Architecture Overview
 
-Validation runs during the IR phase (Phase 1: `KoinAnnotationProcessor`), after definitions are collected but before module function bodies are generated. A3 validation additionally runs in Phase 3 (`KoinStartTransformer`).
+Validation runs across multiple IR phases. A1/A2 validation happens in Phase 1b, A3 in Phase 3/3.1, and A4 in Phase 3.5/3.6.
 
 ```
-IR Phase 1: KoinAnnotationProcessor
-  ├── collectAnnotations()              → discover @Module, @Singleton, @Provided, etc.
-  ├── generateModuleExtensions()        → for each module:
+IR Phase 0: KoinHintTransformer
+  └── Generate bodies for FIR-created hint functions
+
+IR Phase 1: KoinAnnotationProcessor.collectAnnotations()
+  └── Discover @Module, @Singleton, @Provided, etc.
+
+IR Phase 1b: KoinAnnotationProcessor.generateModuleExtensions()
+  ├── For each module:
   │   ├── collect local definitions
   │   ├── collect cross-module definitions (hints)
   │   ├── A1: add definitions from includes
   │   ├── A2: add definitions from @Configuration siblings
-  │   ├── BindingRegistry.validateModule()   ← validation happens here
+  │   ├── BindingRegistry.validateModule()   ← A1/A2 validation
   │   └── generate module() function body
   └── expose: collectedModuleClasses, getDefinitionsForModule()
 
+IR Phase 2: KoinDSLTransformer
+  ├── Transform single<T>() → single(T::class, null) { T(get()) }
+  ├── Collect DslDef definitions for safety graph
+  └── Collect PendingCallSiteValidation for A4
+
+IR Phase 2.5: generateDslDefinitionHints()
+  └── Generate dsl_single/dsl_factory/... hint functions for cross-module DSL discovery
+
 IR Phase 3: KoinStartTransformer
   ├── visitCall(startKoin<T>)           → extract @KoinApplication modules
-  ├── A3: validateFullGraph()           → validate ALL modules combined
+  ├── A3: validateFullGraph()           → validate ALL modules combined (incl. DSL definitions)
   └── transform to startKoinWith(modules, lambda)
+
+IR Phase 3.1: validateDslDefinitionGraph()
+  └── DSL-only A3 — when startKoin{} exists but no startKoin<T>() / @KoinApplication
+
+IR Phase 3.5: validatePendingCallSites()
+  ├── A4: validate get<T>(), inject<T>(), koinViewModel<T>() call sites
+  └── Generate callsite(required: T) hints for unresolved types (deferred validation)
+
+IR Phase 3.6: validateCallSiteHintsFromDependencies()
+  └── Discover and validate call-site hints from dependency modules
+
+IR Phase 4: KoinMonitorTransformer
+  └── Process @Monitor annotations
 ```
 
 ## Key Components
@@ -297,9 +353,11 @@ Unified `Definition` sealed class enables polymorphic handling:
 
 ```kotlin
 sealed class Definition {
-    class ClassDef(val definitionClass: DefinitionClass)
-    class FunctionDef(val definitionFunction: DefinitionFunction)
-    class TopLevelFunctionDef(val definitionTopLevelFunction: DefinitionTopLevelFunction)
+    class ClassDef(val irClass: IrClass, ...)              // annotated class
+    class FunctionDef(val irFunction: IrSimpleFunction, ...) // annotated function in @Module
+    class TopLevelFunctionDef(val irFunction: IrSimpleFunction, ...) // annotated top-level function
+    class DslDef(val irClass: IrClass, ...)                // DSL definition (single<T>, factory<T>)
+    class ExternalFunctionDef(...)                          // cross-module function from hints
 
     abstract val definitionType: DefinitionType
     abstract val returnTypeClass: IrClass   // the provided type
@@ -307,6 +365,9 @@ sealed class Definition {
     abstract val scopeClass: IrClass?       // scope, if scoped
 }
 ```
+
+- **DslDef** — collected during Phase 2 (`KoinDSLTransformer`) when DSL calls like `single<T>()` or `factory<T>()` are transformed. Participates in A3 (Phase 3/3.1) and A4 (Phase 3.5) validation as both provider and consumer.
+- **ExternalFunctionDef** — provider-only definition discovered from cross-module function hints. Represents a tagged top-level function (`@Singleton fun provide...()`) from another Gradle module. Only contributes to the provided types set; its own requirements were validated in its source module.
 
 ## A2: Configuration Group Validation
 
@@ -340,7 +401,7 @@ if (KoinPluginLogger.compileSafetyEnabled && moduleClasses.isNotEmpty() && annot
 }
 ```
 
-`validateFullGraph()` collects ALL definitions from ALL modules via `annotationProcessor.getDefinitionsForModule()` and runs `BindingRegistry.validateModule()` on the union.
+`validateFullGraph()` collects ALL definitions from ALL modules via `annotationProcessor.getDefinitionsForModule()`, includes DSL definitions (`DslDef`) passed from Phase 2, and runs `BindingRegistry.validateModule()` on the union.
 
 The `annotationProcessor` reference is passed from `KoinIrExtension` (Phase 1 → Phase 3).
 
@@ -391,10 +452,15 @@ Each diagnostic test has `.fir.txt` (FIR golden file) and `.errors.txt` (error m
 | A1 | Per-module (local + includes) | Done |
 | A2 | `@Configuration` group siblings | Done |
 | A3 | `startKoin<T>` full graph | Done |
+| A4 | Call-site validation (`get<T>()`, `inject<T>()`, `koinViewModel<T>()`) | Done |
+| B | DSL calls (`single<T>()`, `factory<T>()`) in safety graph | Done |
 | C | Cross-Gradle-module (definitions from dependency JARs via hints) | Done |
 | C2 | Cross-module function hint metadata (qualifier, scope, bindings) | Not started |
-| B | DSL calls (`single<T>()`, `factory<T>()`) | Not started |
 | D | `@Property`/`@PropertyValue` matching | Not started |
+
+**Phase B notes:** DSL definitions (`single<T>()`, `factory<T>()`, etc.) are collected as `DslDef` during Phase 2 and participate in the safety graph. Phase 3.1 validates their constructor parameters when no `startKoin<T>()` / `@KoinApplication` is present. Phase 2.5 generates DSL definition hints (`dsl_single`, `dsl_factory`, etc.) for cross-module discovery.
+
+**Phase A4 notes:** Call sites are collected during Phase 2 and validated in Phase 3.5. Unresolved call sites in feature modules generate `callsite(required: T)` hint functions for deferred validation by the app module in Phase 3.6.
 
 ### Phase C: Known Limitations
 

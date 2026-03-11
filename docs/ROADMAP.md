@@ -127,7 +127,9 @@ Detect missing dependencies at compile time instead of runtime crashes.
   - [ ] Scope propagation: `@Scope(MyScope::class)` (currently appears as root-scope)
   - [ ] Bindings propagation: explicit `@Bind(Interface::class)` (currently empty)
   - [ ] Package filtering uses return type's package, not function's package
-- [ ] DSL validation (B): validate `single<T>()`, `factory<T>()` in hand-written modules
+- [x] DSL validation (B): validate `single<T>()`, `factory<T>()` in hand-written modules
+- [x] Call-site validation (A4): validates `get<T>()`, `inject<T>()`, `koinViewModel<T>()` call sites with deferred cross-module hints
+- [x] Cross-module custom qualifier discovery via qualifier hint functions
 - [ ] Property validation (D): `@Property`/`@PropertyValue` matching
 - See [COMPILE_TIME_SAFETY.md](COMPILE_TIME_SAFETY.md) for detailed design and implementation
 
