@@ -94,20 +94,6 @@ single<Service>()
 // With skipDefaultValues=false: Service(scope.get(), scope.get())
 ```
 
-### 2.3 JSR-330 Compatibility Toggle
-Allow enabling/disabling JSR-330 annotation support via Gradle property:
-- [ ] Add `jsr330` option to `koinCompiler { }` DSL (default: `true`)
-- [ ] Pass option to compiler plugin via `CommandLineProcessor`
-- [ ] Skip `jakarta.inject.*` and `javax.inject.*` annotation processing when disabled
-- [ ] Document in README
-
-```kotlin
-// build.gradle.kts
-koinCompiler {
-    jsr330 = false  // Disable jakarta.inject/javax.inject support
-}
-```
-
 ### 2.3 Compile-Time Dependency Validation
 Detect missing dependencies at compile time instead of runtime crashes.
 - [x] Per-module validation (A1): local definitions + explicit includes
@@ -154,7 +140,21 @@ class MyService {
 }
 ```
 
-### 2.5 Precompiled Module Index
+### 2.5 JSR-330 Compatibility Toggle
+Allow enabling/disabling JSR-330 annotation support via Gradle property:
+- [ ] Add `jsr330` option to `koinCompiler { }` DSL (default: `true`)
+- [ ] Pass option to compiler plugin via `CommandLineProcessor`
+- [ ] Skip `jakarta.inject.*` and `javax.inject.*` annotation processing when disabled
+- [ ] Document in README
+
+```kotlin
+// build.gradle.kts
+koinCompiler {
+    jsr330 = false  // Disable jakarta.inject/javax.inject support
+}
+```
+
+### 2.6 Precompiled Module Index
 Generate static index for faster startup:
 - [ ] Generate `KoinModuleIndex` class listing all `@Configuration` modules
 - [ ] Include module metadata (FQN, dependencies, provided types)
