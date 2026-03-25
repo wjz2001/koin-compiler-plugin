@@ -157,25 +157,48 @@ class DslHintGenerator(private val context: IrPluginContext) {
                 params.add(providerOnlyParam)
             }
 
-            // Encode qualifier (same pattern as annotation hints: qualifier_<name>)
+            // Encode qualifier (same pattern as annotation hints)
             val defQualifier = def.qualifier
-            if (defQualifier is QualifierValue.StringQualifier) {
-                val qualifierParam = context.irFactory.createValueParameter(
-                    startOffset = UNDEFINED_OFFSET,
-                    endOffset = UNDEFINED_OFFSET,
-                    origin = IrDeclarationOrigin.DEFINED,
-                    name = Name.identifier("qualifier_${defQualifier.name.replace('.', '$')}"),
-                    type = context.irBuiltIns.unitType,
-                    isAssignable = false,
-                    symbol = IrValueParameterSymbolImpl(),
-                    index = params.size,
-                    varargElementType = null,
-                    isCrossinline = false,
-                    isNoinline = false,
-                    isHidden = false
-                )
-                qualifierParam.parent = function
-                params.add(qualifierParam)
+            when (defQualifier) {
+                is QualifierValue.StringQualifier -> {
+                    // String qualifier: "qualifier_<name>" with Unit type
+                    val qualifierParam = context.irFactory.createValueParameter(
+                        startOffset = UNDEFINED_OFFSET,
+                        endOffset = UNDEFINED_OFFSET,
+                        origin = IrDeclarationOrigin.DEFINED,
+                        name = Name.identifier("qualifier_${defQualifier.name.replace('.', '$')}"),
+                        type = context.irBuiltIns.unitType,
+                        isAssignable = false,
+                        symbol = IrValueParameterSymbolImpl(),
+                        index = params.size,
+                        varargElementType = null,
+                        isCrossinline = false,
+                        isNoinline = false,
+                        isHidden = false
+                    )
+                    qualifierParam.parent = function
+                    params.add(qualifierParam)
+                }
+                is QualifierValue.TypeQualifier -> {
+                    // Type qualifier: "qualifierType" with the qualifier class type
+                    val qualifierParam = context.irFactory.createValueParameter(
+                        startOffset = UNDEFINED_OFFSET,
+                        endOffset = UNDEFINED_OFFSET,
+                        origin = IrDeclarationOrigin.DEFINED,
+                        name = Name.identifier("qualifierType"),
+                        type = defQualifier.irClass.defaultType,
+                        isAssignable = false,
+                        symbol = IrValueParameterSymbolImpl(),
+                        index = params.size,
+                        varargElementType = null,
+                        isCrossinline = false,
+                        isNoinline = false,
+                        isHidden = false
+                    )
+                    qualifierParam.parent = function
+                    params.add(qualifierParam)
+                }
+                null -> {}
             }
 
             function.valueParameters = params
@@ -331,7 +354,7 @@ class DslHintGenerator(private val context: IrPluginContext) {
                 val targetClass = (params[0].type.classifierOrNull as? IrClassSymbol)?.owner ?: continue
                 val modulePrefix = KoinPluginConstants.DSL_MODULE_PARAM_PREFIX
                 val qualifierPrefix = "qualifier_"
-                val metaParamNames = setOf("providerOnly")
+                val metaParamNames = setOf("providerOnly", "qualifierType")
                 val bindings = params.drop(1)
                     .filter { val name = it.name.asString()
                         !name.startsWith(modulePrefix) && !name.startsWith(qualifierPrefix) && name !in metaParamNames
@@ -345,9 +368,18 @@ class DslHintGenerator(private val context: IrPluginContext) {
                     ?.removePrefix(modulePrefix)
                     ?.replace('$', '.')
                 val providerOnly = params.any { it.name.asString() == "providerOnly" }
-                val qualifierParam = params.firstOrNull { it.name.asString().startsWith(qualifierPrefix) }
-                val qualifier = qualifierParam?.let {
-                    QualifierValue.StringQualifier(it.name.asString().removePrefix(qualifierPrefix).replace('$', '.'))
+                // Decode qualifier: string qualifier (qualifier_<name>) or type qualifier (qualifierType with class type)
+                val stringQualifierParam = params.firstOrNull { it.name.asString().startsWith(qualifierPrefix) }
+                val typeQualifierParam = params.firstOrNull { it.name.asString() == "qualifierType" }
+                val qualifier = when {
+                    stringQualifierParam != null -> QualifierValue.StringQualifier(
+                        stringQualifierParam.name.asString().removePrefix(qualifierPrefix).replace('$', '.')
+                    )
+                    typeQualifierParam != null -> {
+                        val qualifierClass = (typeQualifierParam.type.classifierOrNull as? IrClassSymbol)?.owner
+                        qualifierClass?.let { QualifierValue.TypeQualifier(it) }
+                    }
+                    else -> null
                 }
 
                 definitions.add(Definition.DslDef(

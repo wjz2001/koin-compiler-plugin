@@ -198,6 +198,43 @@ class KoinDSLTransformer(
     // Scope function name for detecting scope<ScopeType> { } blocks
     private val scopeName = Name.identifier("scope")
 
+    /**
+     * Visit class declarations to collect call-site validations from member property delegates
+     * (e.g., `by inject()`, `by viewModel()`). The default transformer doesn't traverse
+     * backing field initializers of class properties.
+     */
+    override fun visitClass(declaration: IrClass): IrStatement {
+        if (compileSafetyEnabled) {
+            for (decl in declaration.declarations) {
+                if (decl is IrProperty) {
+                    val initializer = decl.backingField?.initializer
+                    if (initializer != null) {
+                        collectCallSitesFromExpression(initializer.expression)
+                    }
+                }
+            }
+        }
+        return super.visitClass(declaration)
+    }
+
+    /**
+     * Recursively scan an expression tree for call-site resolution functions.
+     * Used for class property initializers which aren't visited by the standard transformer.
+     */
+    private fun collectCallSitesFromExpression(expression: IrExpression) {
+        if (expression is IrCall) {
+            val callee = expression.symbol.owner
+            collectCallSiteIfResolutionFunction(expression, callee)
+            // Recurse into call arguments
+            for (i in 0 until expression.valueArgumentsCount) {
+                val arg = expression.getValueArgument(i)
+                if (arg != null) collectCallSitesFromExpression(arg)
+            }
+            expression.extensionReceiver?.let { collectCallSitesFromExpression(it) }
+            expression.dispatchReceiver?.let { collectCallSitesFromExpression(it) }
+        }
+    }
+
     override fun visitCall(expression: IrCall): IrExpression {
         val callee = expression.symbol.owner
         val functionName = callee.name
