@@ -20,6 +20,7 @@ import org.jetbrains.kotlin.ir.symbols.IrClassSymbol
 import org.jetbrains.kotlin.incremental.components.LookupTracker
 import org.koin.compiler.plugin.KoinAnnotationFqNames
 import org.koin.compiler.plugin.KoinPluginLogger
+import org.jetbrains.kotlin.ir.expressions.IrGetField
 
 /**
  * Transforms Koin DSL calls:
@@ -48,6 +49,13 @@ class KoinDSLTransformer(
     // ── Collected call-site validations (replaces KoinCallSiteValidator tree walk) ──
     private val _pendingCallSites = mutableListOf<PendingCallSiteValidation>()
     val collectedCallSites: List<PendingCallSiteValidation> get() = _pendingCallSites
+
+    // ── Module loading graph (for DSL module loading validation) ──
+    private val _moduleIncludes = mutableMapOf<String, MutableList<String>>()
+    val moduleIncludes: Map<String, List<String>> get() = _moduleIncludes
+
+    private val _startKoinModules = mutableListOf<String>()
+    val startKoinModules: List<String> get() = _startKoinModules
 
     override fun visitFile(declaration: IrFile): IrFile {
         currentFile = declaration
@@ -98,7 +106,8 @@ class KoinDSLTransformer(
         val definitionCall: Name? = null,
         val scopeTypeClass: IrClass? = null,
         val createQualifier: QualifierValue? = null,
-        val createReturnClass: IrClass? = null
+        val createReturnClass: IrClass? = null,
+        val modulePropertyId: String? = null
     )
 
     // Stack-based context management (thread-safe for single-threaded compiler)
@@ -119,6 +128,34 @@ class KoinDSLTransformer(
         return withContext(transformContext.copy(function = declaration)) {
             super.visitFunction(declaration)
         }
+    }
+
+    override fun visitProperty(declaration: IrProperty): IrStatement {
+        if (!compileSafetyEnabled) return super.visitProperty(declaration)
+        val backingField = declaration.backingField
+        val isModuleType = backingField?.type?.classFqName?.asString() == "org.koin.core.module.Module"
+        if (isModuleType) {
+            val propertyId = buildModulePropertyId(declaration)
+            if (propertyId != null) {
+                KoinPluginLogger.debug { "Module property: $propertyId" }
+                return withContext(transformContext.copy(modulePropertyId = propertyId)) {
+                    super.visitProperty(declaration)
+                }
+            }
+        }
+        return super.visitProperty(declaration)
+    }
+
+    private fun buildModulePropertyId(property: IrProperty): String? {
+        val parent = property.parent
+        val packageName = when (parent) {
+            is IrFile -> parent.packageFqName.asString()
+            is IrClass -> parent.fqNameWhenAvailable?.asString()
+            is IrPackageFragment -> parent.packageFqName.asString()
+            else -> null
+        } ?: return null
+        return if (packageName.isEmpty()) property.name.asString()
+        else "$packageName.${property.name.asString()}"
     }
 
     /**
@@ -168,6 +205,7 @@ class KoinDSLTransformer(
         // Collect call-site validations (koinViewModel<T>(), get<T>(), inject<T>(), etc.)
         if (compileSafetyEnabled) {
             collectCallSiteIfResolutionFunction(expression, callee)
+            collectModuleLoadingInfo(expression, callee)
         }
 
         // Track if we're entering a Koin DSL definition call (single, factory, scoped, etc.)
@@ -277,6 +315,69 @@ class KoinDSLTransformer(
         trackClassLookup(lookupTracker, currentFile, targetClass)
     }
 
+    private fun collectModuleLoadingInfo(expression: IrCall, callee: IrSimpleFunction) {
+        val functionName = callee.name.asString()
+        if (functionName == "includes") {
+            val receiverType = (callee.extensionReceiverParameter ?: callee.dispatchReceiverParameter)
+                ?.type?.classFqName?.asString()
+            if (receiverType == "org.koin.core.module.Module") {
+                val currentModuleId = transformContext.modulePropertyId ?: return
+                val includedModules = resolveModuleReferences(expression)
+                if (includedModules.isNotEmpty()) {
+                    _moduleIncludes.getOrPut(currentModuleId) { mutableListOf() }.addAll(includedModules)
+                    KoinPluginLogger.debug { "  includes: $currentModuleId -> $includedModules" }
+                }
+            }
+            return
+        }
+        if (functionName == "modules") {
+            val receiverType = (callee.extensionReceiverParameter ?: callee.dispatchReceiverParameter)
+                ?.type?.classFqName?.asString()
+            if (receiverType == "org.koin.core.KoinApplication") {
+                val loadedModules = resolveModuleReferences(expression)
+                if (loadedModules.isNotEmpty()) {
+                    _startKoinModules.addAll(loadedModules)
+                    KoinPluginLogger.debug { "  modules() at startKoin: $loadedModules" }
+                }
+            }
+        }
+    }
+
+    private fun resolveModuleReferences(call: IrCall): List<String> {
+        val result = mutableListOf<String>()
+        for (i in 0 until call.valueArgumentsCount) {
+            val arg = call.getValueArgument(i) ?: continue
+            resolveModuleRef(arg, result)
+        }
+        return result
+    }
+
+    private fun resolveModuleRef(expression: IrExpression, result: MutableList<String>) {
+        when (expression) {
+            is IrGetField -> {
+                val property = expression.symbol.owner.correspondingPropertySymbol?.owner
+                if (property != null) {
+                    val propId = buildModulePropertyId(property)
+                    if (propId != null) result.add(propId)
+                }
+            }
+            is IrCall -> {
+                val calledFunction = expression.symbol.owner
+                val property = calledFunction.correspondingPropertySymbol?.owner
+                if (property != null) {
+                    val propId = buildModulePropertyId(property)
+                    if (propId != null) result.add(propId)
+                }
+            }
+            is IrVararg -> {
+                for (element in expression.elements) {
+                    if (element is IrExpression) resolveModuleRef(element, result)
+                }
+            }
+            else -> {}
+        }
+    }
+
     /**
      * Handle single<T>(), factory<T>(), scoped<T>(), viewModel<T>(), worker<T>()
      */
@@ -304,7 +405,8 @@ class KoinDSLTransformer(
                 irClass = targetClass,
                 definitionType = defType,
                 bindings = detectAutoBindings(targetClass),
-                scopeClass = if (defType == DefinitionType.SCOPED) transformContext.scopeTypeClass else null
+                scopeClass = if (defType == DefinitionType.SCOPED) transformContext.scopeTypeClass else null,
+                modulePropertyId = transformContext.modulePropertyId
             ))
         }
 
@@ -400,7 +502,8 @@ class KoinDSLTransformer(
                         irClass = targetClass,
                         definitionType = enclosingDefType,
                         bindings = detectAutoBindings(targetClass),
-                        scopeClass = if (enclosingDefType == DefinitionType.SCOPED) transformContext.scopeTypeClass else null
+                        scopeClass = if (enclosingDefType == DefinitionType.SCOPED) transformContext.scopeTypeClass else null,
+                        modulePropertyId = transformContext.modulePropertyId
                     ))
                 }
                 val enclosingDef = currentDefinitionCall?.asString() ?: "unknown"
@@ -417,12 +520,25 @@ class KoinDSLTransformer(
             }
             is IrSimpleFunction -> {
                 // Extract qualifier from function for propagation to enclosing definition
+                val returnTypeClass = referencedFunction.returnType.classifierOrNull?.owner as? IrClass
                 val funcQualifier = qualifierExtractor.extractFromDeclaration(referencedFunction, "function ${referencedFunction.name}")
                 if (funcQualifier != null && currentDefinitionCall != null) {
                     transformContext = transformContext.copy(
                         createQualifier = funcQualifier,
-                        createReturnClass = referencedFunction.returnType.classifierOrNull?.owner as? IrClass
+                        createReturnClass = returnTypeClass
                     )
+                }
+                val enclosingDefType = currentDefinitionCall?.let { definitionTypeMap[it] }
+                if (enclosingDefType != null && compileSafetyEnabled && returnTypeClass != null) {
+                    trackClassLookup(lookupTracker, currentFile, returnTypeClass)
+                    _dslDefinitions.add(Definition.DslDef(
+                        irClass = returnTypeClass,
+                        definitionType = enclosingDefType,
+                        bindings = detectAutoBindings(returnTypeClass),
+                        scopeClass = if (enclosingDefType == DefinitionType.SCOPED) transformContext.scopeTypeClass else null,
+                        modulePropertyId = transformContext.modulePropertyId,
+                        providerOnly = true
+                    ))
                 }
                 val returnTypeName = referencedFunction.returnType.classFqName?.shortName() ?: referencedFunction.returnType.toString()
                 val enclosingDef = currentDefinitionCall?.asString() ?: "unknown"

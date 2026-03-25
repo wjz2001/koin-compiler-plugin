@@ -116,6 +116,47 @@ class DslHintGenerator(private val context: IrPluginContext) {
                 params.add(bindingParam)
             }
 
+            // Encode modulePropertyId as a Unit-typed parameter (cross-module reachability)
+            val moduleId = def.modulePropertyId
+            if (moduleId != null) {
+                val moduleParam = context.irFactory.createValueParameter(
+                    startOffset = UNDEFINED_OFFSET,
+                    endOffset = UNDEFINED_OFFSET,
+                    origin = IrDeclarationOrigin.DEFINED,
+                    name = Name.identifier("${KoinPluginConstants.DSL_MODULE_PARAM_PREFIX}${moduleId.replace('.', '$')}"),
+                    type = context.irBuiltIns.unitType,
+                    isAssignable = false,
+                    symbol = IrValueParameterSymbolImpl(),
+                    index = params.size,
+                    varargElementType = null,
+                    isCrossinline = false,
+                    isNoinline = false,
+                    isHidden = false
+                )
+                moduleParam.parent = function
+                params.add(moduleParam)
+            }
+
+            // Encode providerOnly flag (create(::function) definitions)
+            if (def.providerOnly) {
+                val providerOnlyParam = context.irFactory.createValueParameter(
+                    startOffset = UNDEFINED_OFFSET,
+                    endOffset = UNDEFINED_OFFSET,
+                    origin = IrDeclarationOrigin.DEFINED,
+                    name = Name.identifier("providerOnly"),
+                    type = context.irBuiltIns.unitType,
+                    isAssignable = false,
+                    symbol = IrValueParameterSymbolImpl(),
+                    index = params.size,
+                    varargElementType = null,
+                    isCrossinline = false,
+                    isNoinline = false,
+                    isHidden = false
+                )
+                providerOnlyParam.parent = function
+                params.add(providerOnlyParam)
+            }
+
             function.valueParameters = params
 
             // Empty body (stub — hint functions are never called)
@@ -129,6 +170,7 @@ class DslHintGenerator(private val context: IrPluginContext) {
 
             // Create synthetic FirFile for metadata
             val firModuleData = extractFirModuleData(targetClass)
+                ?: extractFirModuleDataFromModule(moduleFragment)
             if (firModuleData == null) {
                 KoinPluginLogger.debug { "  WARN: No FIR module data for ${targetClass.name}, skipping DSL hint" }
                 continue
@@ -184,6 +226,16 @@ class DslHintGenerator(private val context: IrPluginContext) {
             is FirMetadataSource.Function -> src.fir.moduleData
             is FirMetadataSource.File -> src.fir.moduleData
             else -> null
+        }
+    }
+
+    private fun extractFirModuleDataFromModule(moduleFragment: IrModuleFragment): org.jetbrains.kotlin.fir.FirModuleData? {
+        return moduleFragment.files.firstNotNullOfOrNull { file ->
+            when (val meta = file.metadata) {
+                is FirMetadataSource.File -> meta.fir.moduleData
+                is FirMetadataSource.Class -> meta.fir.moduleData
+                else -> null
+            }
         }
     }
 
@@ -256,14 +308,26 @@ class DslHintGenerator(private val context: IrPluginContext) {
 
                 // First param is the concrete type, remaining are bindings
                 val targetClass = (params[0].type.classifierOrNull as? IrClassSymbol)?.owner ?: continue
-                val bindings = params.drop(1).mapNotNull { param ->
-                    (param.type.classifierOrNull as? IrClassSymbol)?.owner
-                }
+                val modulePrefix = KoinPluginConstants.DSL_MODULE_PARAM_PREFIX
+                val metaParamNames = setOf("providerOnly")
+                val bindings = params.drop(1)
+                    .filter { val name = it.name.asString(); !name.startsWith(modulePrefix) && name !in metaParamNames }
+                    .mapNotNull { param ->
+                        (param.type.classifierOrNull as? IrClassSymbol)?.owner
+                    }
+                val modulePropertyId = params
+                    .firstOrNull { it.name.asString().startsWith(modulePrefix) }
+                    ?.name?.asString()
+                    ?.removePrefix(modulePrefix)
+                    ?.replace('$', '.')
+                val providerOnly = params.any { it.name.asString() == "providerOnly" }
 
                 definitions.add(Definition.DslDef(
                     irClass = targetClass,
                     definitionType = defType,
-                    bindings = bindings
+                    bindings = bindings,
+                    modulePropertyId = modulePropertyId,
+                    providerOnly = providerOnly
                 ))
             }
         }

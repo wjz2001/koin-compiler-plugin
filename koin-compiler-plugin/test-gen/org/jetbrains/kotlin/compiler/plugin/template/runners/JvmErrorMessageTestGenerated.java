@@ -27,6 +27,12 @@ public class JvmErrorMessageTestGenerated extends AbstractJvmErrorMessageTest {
   }
 
   @Test
+  @TestMetadata("dsl_module_not_loaded.kt")
+  public void testDsl_module_not_loaded() {
+    runTest("koin-compiler-plugin/testData/diagnostics/dsl_module_not_loaded.kt");
+  }
+
+  @Test
   @TestMetadata("lazy_missing.kt")
   public void testLazy_missing() {
     runTest("koin-compiler-plugin/testData/diagnostics/lazy_missing.kt");

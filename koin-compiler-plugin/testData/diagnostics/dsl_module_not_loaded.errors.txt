@@ -1,0 +1,3 @@
+[Koin] Missing dependency: Repository
+  required by: dsl:Service (parameter 'repo')
+  in module: DSL graph

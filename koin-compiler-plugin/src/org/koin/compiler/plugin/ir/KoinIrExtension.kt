@@ -75,7 +75,10 @@ class KoinIrExtension(
             && safetyValidator.assembledGraphTypes.isEmpty()
             && startKoinTransformer.hasKoinEntryPoint) {
             KoinPluginLogger.debug { "Phase 3.1: DSL-only A3 validation (${dslDefinitions.size} local DSL definitions)" }
-            callSiteValidator.validateDslDefinitionGraph(dslDefinitions, annotationProcessor, safetyValidator, dslHintGenerator)
+            callSiteValidator.validateDslDefinitionGraph(
+                dslDefinitions, annotationProcessor, safetyValidator, dslHintGenerator,
+                koinTransformer.startKoinModules, koinTransformer.moduleIncludes
+            )
         }
 
         // Phase 3.5: Validate pending call sites (simple loop, no tree walk)
