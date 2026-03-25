@@ -398,6 +398,9 @@ class KoinDSLTransformer(
         // IC: file containing DSL call depends on the target class
         trackClassLookup(lookupTracker, currentFile, targetClass)
 
+        // Get qualifier from @Named or @Qualifier annotation on class
+        val qualifier = qualifierExtractor.extractFromClass(targetClass)
+
         // Collect DSL definition for safety validation
         val defType = definitionTypeMap[functionName]
         if (defType != null && compileSafetyEnabled) {
@@ -406,7 +409,8 @@ class KoinDSLTransformer(
                 definitionType = defType,
                 bindings = detectAutoBindings(targetClass),
                 scopeClass = if (defType == DefinitionType.SCOPED) transformContext.scopeTypeClass else null,
-                modulePropertyId = transformContext.modulePropertyId
+                modulePropertyId = transformContext.modulePropertyId,
+                qualifier = qualifier
             ))
         }
 
@@ -423,9 +427,6 @@ class KoinDSLTransformer(
             KoinPluginLogger.debug { "$functionName target function not found for $receiverClassName" }
             return call
         }
-
-        // Get qualifier from @Named or @Qualifier annotation on class
-        val qualifier = qualifierExtractor.extractFromClass(targetClass)
 
         // For worker definitions, use class name as qualifier (required by WorkManager)
         val effectiveQualifier: QualifierValue? = if (functionName == workerName) {
@@ -503,7 +504,8 @@ class KoinDSLTransformer(
                         definitionType = enclosingDefType,
                         bindings = detectAutoBindings(targetClass),
                         scopeClass = if (enclosingDefType == DefinitionType.SCOPED) transformContext.scopeTypeClass else null,
-                        modulePropertyId = transformContext.modulePropertyId
+                        modulePropertyId = transformContext.modulePropertyId,
+                        qualifier = classQualifier
                     ))
                 }
                 val enclosingDef = currentDefinitionCall?.asString() ?: "unknown"
@@ -537,7 +539,8 @@ class KoinDSLTransformer(
                         bindings = detectAutoBindings(returnTypeClass),
                         scopeClass = if (enclosingDefType == DefinitionType.SCOPED) transformContext.scopeTypeClass else null,
                         modulePropertyId = transformContext.modulePropertyId,
-                        providerOnly = true
+                        providerOnly = true,
+                        qualifier = funcQualifier
                     ))
                 }
                 val returnTypeName = referencedFunction.returnType.classFqName?.shortName() ?: referencedFunction.returnType.toString()

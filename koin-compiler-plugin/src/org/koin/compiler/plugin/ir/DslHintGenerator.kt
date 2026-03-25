@@ -157,6 +157,27 @@ class DslHintGenerator(private val context: IrPluginContext) {
                 params.add(providerOnlyParam)
             }
 
+            // Encode qualifier (same pattern as annotation hints: qualifier_<name>)
+            val defQualifier = def.qualifier
+            if (defQualifier is QualifierValue.StringQualifier) {
+                val qualifierParam = context.irFactory.createValueParameter(
+                    startOffset = UNDEFINED_OFFSET,
+                    endOffset = UNDEFINED_OFFSET,
+                    origin = IrDeclarationOrigin.DEFINED,
+                    name = Name.identifier("qualifier_${defQualifier.name.replace('.', '$')}"),
+                    type = context.irBuiltIns.unitType,
+                    isAssignable = false,
+                    symbol = IrValueParameterSymbolImpl(),
+                    index = params.size,
+                    varargElementType = null,
+                    isCrossinline = false,
+                    isNoinline = false,
+                    isHidden = false
+                )
+                qualifierParam.parent = function
+                params.add(qualifierParam)
+            }
+
             function.valueParameters = params
 
             // Empty body (stub — hint functions are never called)
@@ -309,9 +330,12 @@ class DslHintGenerator(private val context: IrPluginContext) {
                 // First param is the concrete type, remaining are bindings
                 val targetClass = (params[0].type.classifierOrNull as? IrClassSymbol)?.owner ?: continue
                 val modulePrefix = KoinPluginConstants.DSL_MODULE_PARAM_PREFIX
+                val qualifierPrefix = "qualifier_"
                 val metaParamNames = setOf("providerOnly")
                 val bindings = params.drop(1)
-                    .filter { val name = it.name.asString(); !name.startsWith(modulePrefix) && name !in metaParamNames }
+                    .filter { val name = it.name.asString()
+                        !name.startsWith(modulePrefix) && !name.startsWith(qualifierPrefix) && name !in metaParamNames
+                    }
                     .mapNotNull { param ->
                         (param.type.classifierOrNull as? IrClassSymbol)?.owner
                     }
@@ -321,13 +345,18 @@ class DslHintGenerator(private val context: IrPluginContext) {
                     ?.removePrefix(modulePrefix)
                     ?.replace('$', '.')
                 val providerOnly = params.any { it.name.asString() == "providerOnly" }
+                val qualifierParam = params.firstOrNull { it.name.asString().startsWith(qualifierPrefix) }
+                val qualifier = qualifierParam?.let {
+                    QualifierValue.StringQualifier(it.name.asString().removePrefix(qualifierPrefix).replace('$', '.'))
+                }
 
                 definitions.add(Definition.DslDef(
                     irClass = targetClass,
                     definitionType = defType,
                     bindings = bindings,
                     modulePropertyId = modulePropertyId,
-                    providerOnly = providerOnly
+                    providerOnly = providerOnly,
+                    qualifier = qualifier
                 ))
             }
         }

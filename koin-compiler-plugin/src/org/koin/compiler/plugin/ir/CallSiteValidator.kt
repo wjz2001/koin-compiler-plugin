@@ -385,7 +385,7 @@ class CallSiteValidator(private val context: IrPluginContext) {
             defsToValidate
         )
 
-        if (unreachableDefs.isNotEmpty() && errorCount > 0) {
+        if (unreachableDefs.isNotEmpty()) {
             reportUnreachableModules(unreachableDefs, reachableModuleIds)
         }
 
@@ -448,8 +448,10 @@ class CallSiteValidator(private val context: IrPluginContext) {
         for ((moduleId, defs) in byModule) {
             val typeNames = defs.mapNotNull { it.returnTypeClass.fqNameWhenAvailable?.shortName()?.asString() }
             val shortModuleName = moduleId.substringAfterLast('.')
-            KoinPluginLogger.warn("[Koin] Module '$shortModuleName' is not loaded at startKoin — ${defs.size} definitions unreachable: ${typeNames.joinToString()}")
-            KoinPluginLogger.warn("  Add it to modules() or includes() to make these definitions available")
+            KoinPluginLogger.error(
+                "Module '$shortModuleName' is not loaded at startKoin — ${defs.size} definitions unreachable: ${typeNames.joinToString()}\n" +
+                "  Add it to modules() or includes() to make these definitions available"
+            )
         }
     }
 }

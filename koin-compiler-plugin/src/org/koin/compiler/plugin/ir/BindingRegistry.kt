@@ -313,7 +313,7 @@ class BindingRegistry {
             is Definition.ClassDef -> qualifierExtractor.extractFromClass(def.irClass)
             is Definition.FunctionDef -> qualifierExtractor.extractFromDeclaration(def.irFunction)
             is Definition.TopLevelFunctionDef -> qualifierExtractor.extractFromDeclaration(def.irFunction)
-            is Definition.DslDef -> qualifierExtractor.extractFromClass(def.irClass)
+            is Definition.DslDef -> def.qualifier ?: qualifierExtractor.extractFromClass(def.irClass)
             is Definition.ExternalFunctionDef -> def.qualifier
         }
     }

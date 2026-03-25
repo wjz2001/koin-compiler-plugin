@@ -117,7 +117,8 @@ sealed class Definition {
         override val scopeArchetype: ScopeArchetype? = null,
         override val createdAtStart: Boolean = false,
         val modulePropertyId: String? = null,
-        val providerOnly: Boolean = false
+        val providerOnly: Boolean = false,
+        val qualifier: QualifierValue? = null // Qualifier from @Named/@Qualifier on class or create(::function)
     ) : Definition() {
         override val returnTypeClass: IrClass get() = irClass
     }
