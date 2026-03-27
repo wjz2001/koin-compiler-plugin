@@ -414,6 +414,24 @@ class QualifierExtractor(private val context: IrPluginContext) {
     }
 
     /**
+     * Check if a parameter has the @Provided annotation.
+     * When present, the parameter's type is considered externally provided
+     * and skips compile-time safety validation.
+     *
+     * @param param The parameter to check
+     * @return True if the parameter has @Provided
+     */
+    fun hasProvidedAnnotation(param: IrValueParameter): Boolean {
+        val hasAnnotation = param.annotations.any { annotation ->
+            annotation.type.classFqName?.asString() == KoinAnnotationFqNames.PROVIDED.asString()
+        }
+        if (hasAnnotation) {
+            KoinPluginLogger.debug { "  @Provided on parameter ${param.name}" }
+        }
+        return hasAnnotation
+    }
+
+    /**
      * Get the property key from @Property annotation on a parameter.
      *
      * @param param The parameter to check

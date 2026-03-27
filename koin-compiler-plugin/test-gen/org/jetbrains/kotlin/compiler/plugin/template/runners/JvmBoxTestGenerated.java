@@ -305,6 +305,18 @@ public class JvmBoxTestGenerated extends AbstractJvmBoxTest {
     }
 
     @Test
+    @TestMetadata("provided_param_dsl_ok.kt")
+    public void testProvided_param_dsl_ok() {
+      runTest("koin-compiler-plugin/testData/box/safety/provided_param_dsl_ok.kt");
+    }
+
+    @Test
+    @TestMetadata("provided_param_ok.kt")
+    public void testProvided_param_ok() {
+      runTest("koin-compiler-plugin/testData/box/safety/provided_param_ok.kt");
+    }
+
+    @Test
     @TestMetadata("provided_type_ok.kt")
     public void testProvided_type_ok() {
       runTest("koin-compiler-plugin/testData/box/safety/provided_type_ok.kt");

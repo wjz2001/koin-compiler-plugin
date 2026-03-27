@@ -124,7 +124,6 @@ Detect missing dependencies at compile time instead of runtime crashes.
 - [ ] Property validation (D): `@Property`/`@PropertyValue` matching — see §2.7
 - [ ] `@ScopeId` support — see §2.8
 - [ ] `Scope` parameter injection — see §2.9
-- [ ] DSL `@Configuration` bridge for full safety — see §2.10
 
 ### 2.4 `@Monitor` Annotation Support ✅
 Function interception for logging and performance capture:
@@ -222,60 +221,6 @@ class ScopedService(@Provided val scope: Scope) {
     fun dynamicLookup() = scope.get<SomeDep>()  // Not validated at compile time
 }
 ```
-
-### 2.10 DSL `@Configuration` Bridge for Compile Safety
-Allow `@Configuration` on module property declarations so DSL-style modules can participate
-in full-graph A3 validation at `startKoin<T>()`. Currently, plain `startKoin { modules(...) }`
-can't be fully validated — the compiler doesn't know which modules are loaded.
-
-**Approach:**
-- `@Configuration("label")` on `val myModule = module { }` properties
-- FIR discovers annotated properties via `predicateBasedProvider.getSymbolsByPredicate(configurationPredicate)`
-  (already matches any annotated declaration — currently filtered to classes only, needs `FirPropertySymbol` handling)
-- FIR generates `configuration_<label>` hint for the property (same mechanism as class modules)
-- IR Phase 2: when collecting `DslDef`s inside `module { }` lambda, check if enclosing property
-  has `@Configuration` → tag definitions with the label
-- A3 at `startKoin<T>()`: resolve configuration labels → all tagged DSL definitions join the graph
-- No explicit `includes` needed between modules in the same configuration group — A3 sees everything
-
-**Changes needed:**
-- [ ] Add `AnnotationTarget.PROPERTY` to `@Configuration`'s `@Target` (in koin-annotations)
-- [ ] FIR: in `configurationModules` lazy, also filter for `FirPropertySymbol` (not just `FirClassSymbol`)
-- [ ] FIR: generate `configuration_<label>` hints for annotated properties
-- [ ] IR Phase 2 (`KoinDSLTransformer`): detect `@Configuration` on parent property of `module { }` call
-- [ ] IR Phase 2: associate collected `DslDef`s with configuration label
-- [ ] `@KoinApplication`: add `configurations` attribute to reference labels (e.g., `configurations = ["app"]`)
-- [ ] A3 (`CompileSafetyValidator.validateFullGraph`): resolve configuration labels → include DSL definitions
-- [ ] Add tests: DSL module with `@Configuration` validated at A3
-
-```kotlin
-@Configuration("app")
-val networkModule = module {
-    single<HttpClient>()
-    single<ApiService>()  // depends on HttpClient — OK at A3 level
-}
-
-@Configuration("app")
-val dataModule = module {
-    single<Repository>()  // depends on ApiService — OK at A3 level
-}
-
-// Annotation module in same group:
-@Module
-@Configuration("app")
-class AppModule {
-    @Single fun analytics(): Analytics = AnalyticsImpl()
-}
-
-// Entry point — compiler resolves "app" → all 3 modules → full A3 validation
-@KoinApplication(configurations = ["app"])
-object MyApp
-
-startKoin<MyApp> { }
-```
-
-**Note:** Per-module A2 validation is limited for DSL modules (no `includes` mechanism on properties).
-The real safety net is A3 at `startKoin<T>()` where all modules in the configuration are visible together.
 
 ---
 

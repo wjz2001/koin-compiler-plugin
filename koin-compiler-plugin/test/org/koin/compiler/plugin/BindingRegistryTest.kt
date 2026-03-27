@@ -411,6 +411,7 @@ class BindingRegistryTest {
             isNullable = isNullable,
             hasDefault = hasDefault,
             isInjectedParam = isInjectedParam,
+            isProvided = false,
             isLazy = isLazy,
             isList = isList,
             isProperty = isProperty,

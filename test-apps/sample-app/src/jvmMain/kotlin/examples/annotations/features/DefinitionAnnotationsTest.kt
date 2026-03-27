@@ -89,3 +89,12 @@ class DataRepository(
     @Named("local") val localSource: Repository,
     @Named("remote") val remoteSource: Repository
 )
+
+// ============================================================================
+// Test: @Provided on parameter — type is provided by hand (e.g., androidContext(), manual single{})
+// ============================================================================
+
+class PlatformContext
+
+@Factory
+class PlatformService(@Provided val ctx: PlatformContext)

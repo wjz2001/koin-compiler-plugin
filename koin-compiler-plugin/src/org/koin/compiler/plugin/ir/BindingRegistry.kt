@@ -33,6 +33,7 @@ data class Requirement(
     val isNullable: Boolean,
     val hasDefault: Boolean,
     val isInjectedParam: Boolean,
+    val isProvided: Boolean,
     val isLazy: Boolean,
     val isList: Boolean,
     val isProperty: Boolean,
@@ -45,6 +46,7 @@ data class Requirement(
      */
     fun requiresValidation(): Boolean {
         if (isInjectedParam) return false  // Provided at runtime via parametersOf()
+        if (isProvided) return false       // @Provided — externally available at runtime
         if (isNullable) return false        // getOrNull() handles missing
         if (isList) return false            // getAll() returns empty if none
         if (isProperty) return false        // Property injection (validated separately)
@@ -153,6 +155,7 @@ class BindingRegistry {
                 if (!req.requiresValidation()) {
                     val reason = when {
                         req.isInjectedParam -> "@InjectedParam"
+                        req.isProvided -> "@Provided"
                         req.isNullable -> "nullable"
                         req.isList -> "List (getAll)"
                         req.isProperty -> "@Property"

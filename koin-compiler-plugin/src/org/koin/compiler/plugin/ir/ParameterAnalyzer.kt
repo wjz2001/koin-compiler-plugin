@@ -59,6 +59,7 @@ class ParameterAnalyzer(
                 isNullable = paramType.isMarkedNullable(),
                 hasDefault = param.defaultValue != null,
                 isInjectedParam = false,
+                isProvided = false,
                 isLazy = false,
                 isList = false,
                 isProperty = true,
@@ -77,6 +78,26 @@ class ParameterAnalyzer(
                 isNullable = paramType.isMarkedNullable(),
                 hasDefault = param.defaultValue != null,
                 isInjectedParam = true,
+                isProvided = false,
+                isLazy = false,
+                isList = false,
+                isProperty = false,
+                propertyKey = null,
+                qualifier = null
+            )
+        }
+
+        // @Provided → type is externally available at runtime, skip validation
+        val isProvided = qualifierExtractor.hasProvidedAnnotation(param)
+        if (isProvided) {
+            KoinPluginLogger.debug { "    param '$paramName': @Provided" }
+            return Requirement(
+                typeKey = typeKeyFromType(paramType),
+                paramName = paramName,
+                isNullable = paramType.isMarkedNullable(),
+                hasDefault = param.defaultValue != null,
+                isInjectedParam = false,
+                isProvided = true,
                 isLazy = false,
                 isList = false,
                 isProperty = false,
@@ -112,6 +133,7 @@ class ParameterAnalyzer(
                     isNullable = innerNullable,
                     hasDefault = hasDefault,
                     isInjectedParam = false,
+                    isProvided = false,
                     isLazy = true,
                     isList = false,
                     isProperty = false,
@@ -131,6 +153,7 @@ class ParameterAnalyzer(
                     isNullable = isNullable,
                     hasDefault = hasDefault,
                     isInjectedParam = false,
+                    isProvided = false,
                     isLazy = false,
                     isList = true,
                     isProperty = false,
@@ -154,6 +177,7 @@ class ParameterAnalyzer(
             isNullable = isNullable,
             hasDefault = hasDefault,
             isInjectedParam = false,
+            isProvided = false,
             isLazy = false,
             isList = false,
             isProperty = false,
