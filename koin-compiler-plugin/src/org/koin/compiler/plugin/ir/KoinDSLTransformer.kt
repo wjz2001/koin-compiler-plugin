@@ -270,6 +270,11 @@ class KoinDSLTransformer(
         // Restore previous context
         transformContext = previousContext
 
+        // Detect .bind(Interface::class) — add the bound type to the last collected DslDef
+        if (compileSafetyEnabled && functionName.asString() == "bind") {
+            collectBindType(transformedCall)
+        }
+
         // Only handle our target functions
         if (functionName != createName && functionName != singleName && functionName != factoryName &&
             functionName != scopedName && functionName != viewModelName && functionName != workerName) {
@@ -350,6 +355,37 @@ class KoinDSLTransformer(
 
         // IC: call site file depends on the target class
         trackClassLookup(lookupTracker, currentFile, targetClass)
+    }
+
+    /**
+     * Detect .bind(Interface::class) and add the bound type to the last collected DslDef.
+     * The inner single<T>()/factory<T>() has already been processed and its DslDef added.
+     */
+    private fun collectBindType(expression: IrCall) {
+        if (_dslDefinitions.isEmpty()) return
+
+        // Extract the KClass argument from bind(clazz: KClass<S>)
+        val classArg = expression.getValueArgument(0) ?: return
+        val boundClass = when (classArg) {
+            is IrClassReference -> {
+                val classifier = classArg.classType.classifierOrNull
+                when (classifier) {
+                    is IrClassSymbol -> classifier.owner
+                    is IrClass -> classifier
+                    else -> null
+                }
+            }
+            else -> null
+        } ?: return
+
+        // Update the last DslDef with the additional binding
+        val lastDef = _dslDefinitions.last()
+        if (boundClass.fqNameWhenAvailable?.asString() !in lastDef.bindings.mapNotNull { it.fqNameWhenAvailable?.asString() }) {
+            _dslDefinitions[_dslDefinitions.lastIndex] = lastDef.copy(
+                bindings = lastDef.bindings + boundClass
+            )
+            KoinPluginLogger.debug { "  bind: ${lastDef.returnTypeClass.name} -> ${boundClass.name}" }
+        }
     }
 
     private fun collectModuleLoadingInfo(expression: IrCall, callee: IrSimpleFunction) {
@@ -444,7 +480,7 @@ class KoinDSLTransformer(
             _dslDefinitions.add(Definition.DslDef(
                 irClass = targetClass,
                 definitionType = defType,
-                bindings = detectAutoBindings(targetClass),
+                bindings = emptyList(), // DSL: only explicit bind() adds bindings (no auto-bind like annotations)
                 scopeClass = if (defType == DefinitionType.SCOPED) transformContext.scopeTypeClass else null,
                 modulePropertyId = transformContext.modulePropertyId,
                 qualifier = qualifier
@@ -539,7 +575,7 @@ class KoinDSLTransformer(
                     _dslDefinitions.add(Definition.DslDef(
                         irClass = targetClass,
                         definitionType = enclosingDefType,
-                        bindings = detectAutoBindings(targetClass),
+                        bindings = emptyList(), // DSL: only explicit bind() adds bindings (no auto-bind like annotations)
                         scopeClass = if (enclosingDefType == DefinitionType.SCOPED) transformContext.scopeTypeClass else null,
                         modulePropertyId = transformContext.modulePropertyId,
                         qualifier = classQualifier
@@ -573,7 +609,7 @@ class KoinDSLTransformer(
                     _dslDefinitions.add(Definition.DslDef(
                         irClass = returnTypeClass,
                         definitionType = enclosingDefType,
-                        bindings = detectAutoBindings(returnTypeClass),
+                        bindings = emptyList(), // DSL: only explicit bind() adds bindings
                         scopeClass = if (enclosingDefType == DefinitionType.SCOPED) transformContext.scopeTypeClass else null,
                         modulePropertyId = transformContext.modulePropertyId,
                         providerOnly = true,
