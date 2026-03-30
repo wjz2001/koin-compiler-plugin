@@ -167,6 +167,12 @@ class BindingRegistry {
                         else -> "unknown"
                     }
                     KoinPluginLogger.debug { "      skip '${req.paramName}': ${req.typeKey.render()} ($reason)" }
+
+                    // Validate @Property/@PropertyValue matching inline (no second pass)
+                    if (req.isProperty && req.propertyKey != null && !PropertyValueRegistry.hasDefault(req.propertyKey)) {
+                        KoinPluginLogger.warn("[Koin] Missing @PropertyValue default: \"${req.propertyKey}\" — no @PropertyValue(\"${req.propertyKey}\") found for $defName in module $moduleName. Property must be provided at runtime via properties().")
+                    }
+
                     continue
                 }
 
@@ -200,35 +206,6 @@ class BindingRegistry {
         }
 
         return errorCount
-    }
-
-    /**
-     * Validate that @Property("key") parameters have a matching @PropertyValue("key") default.
-     * Emits warnings for missing property defaults (not errors, since properties can be set at runtime).
-     */
-    fun validatePropertyKeys(
-        definitions: List<Definition>,
-        parameterAnalyzer: ParameterAnalyzer,
-        moduleName: String
-    ) {
-        for (def in definitions) {
-            val requirements = extractRequirements(def, parameterAnalyzer)
-            val defName = definitionDisplayName(def)
-
-            for (req in requirements) {
-                if (!req.isProperty || req.propertyKey == null) continue
-
-                if (!PropertyValueRegistry.hasDefault(req.propertyKey)) {
-                    val message = buildString {
-                        append("[Koin] Missing @PropertyValue default: \"${req.propertyKey}\"")
-                        append(" — no @PropertyValue(\"${req.propertyKey}\") found for $defName")
-                        append(" in module $moduleName.")
-                        append(" Property must be provided at runtime via properties().")
-                    }
-                    KoinPluginLogger.warn(message)
-                }
-            }
-        }
     }
 
     /**
