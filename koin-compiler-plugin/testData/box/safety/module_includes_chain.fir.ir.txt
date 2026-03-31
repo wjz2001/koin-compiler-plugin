@@ -25,7 +25,7 @@ FILE fqName:<root> fileName:/appModuleModule.kt
                         RETURN type=kotlin.Nothing from='local final fun <anonymous> (<this>: org.koin.core.scope.Scope, params: org.koin.core.parameter.ParametersHolder): <root>.AppService declared in <root>.module.<anonymous>'
                           CALL 'public final fun provideService (repo: <root>.Repository): <root>.AppService declared in <root>.AppModule' type=<root>.AppService origin=null
                             ARG <this>: GET_VAR '<this>: <root>.AppModule declared in <root>.module' type=<root>.AppModule origin=null
-                            ARG repo: CALL 'public final fun get <T> (qualifier: org.koin.core.qualifier.Qualifier?, parameters: kotlin.Function0<org.koin.core.parameter.ParametersHolder>?): T of org.koin.core.scope.Scope.get declared in org.koin.core.scope.Scope' type=T of org.koin.core.scope.Scope.get origin=null
+                            ARG repo: CALL 'public final fun get <T> (qualifier: org.koin.core.qualifier.Qualifier?, parameters: kotlin.Function0<org.koin.core.parameter.ParametersHolder>?): T of org.koin.core.scope.Scope.get declared in org.koin.core.scope.Scope' type=<root>.Repository origin=null
                               TYPE_ARG T: <root>.Repository
                               ARG <this>: GET_VAR '<this>: org.koin.core.scope.Scope declared in <root>.module.<anonymous>.<anonymous>' type=org.koin.core.scope.Scope origin=null
                               ARG qualifier: CONST Null type=kotlin.Nothing? value=null
@@ -57,7 +57,7 @@ FILE fqName:<root> fileName:/dataModuleModule.kt
                         RETURN type=kotlin.Nothing from='local final fun <anonymous> (<this>: org.koin.core.scope.Scope, params: org.koin.core.parameter.ParametersHolder): <root>.Repository declared in <root>.module.<anonymous>'
                           CALL 'public final fun provideRepo (db: <root>.Database): <root>.Repository declared in <root>.DataModule' type=<root>.Repository origin=null
                             ARG <this>: GET_VAR '<this>: <root>.DataModule declared in <root>.module' type=<root>.DataModule origin=null
-                            ARG db: CALL 'public final fun get <T> (qualifier: org.koin.core.qualifier.Qualifier?, parameters: kotlin.Function0<org.koin.core.parameter.ParametersHolder>?): T of org.koin.core.scope.Scope.get declared in org.koin.core.scope.Scope' type=T of org.koin.core.scope.Scope.get origin=null
+                            ARG db: CALL 'public final fun get <T> (qualifier: org.koin.core.qualifier.Qualifier?, parameters: kotlin.Function0<org.koin.core.parameter.ParametersHolder>?): T of org.koin.core.scope.Scope.get declared in org.koin.core.scope.Scope' type=<root>.Database origin=null
                               TYPE_ARG T: <root>.Database
                               ARG <this>: GET_VAR '<this>: org.koin.core.scope.Scope declared in <root>.module.<anonymous>.<anonymous>' type=org.koin.core.scope.Scope origin=null
                               ARG qualifier: CONST Null type=kotlin.Nothing? value=null

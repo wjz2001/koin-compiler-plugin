@@ -142,7 +142,7 @@ FILE fqName:<root> fileName:/testModuleModule.kt
                       BLOCK_BODY
                         RETURN type=kotlin.Nothing from='local final fun <anonymous> (<this>: org.koin.core.scope.Scope, params: org.koin.core.parameter.ParametersHolder): <root>.Consumer declared in <root>.module.<anonymous>'
                           CONSTRUCTOR_CALL 'public constructor <init> (heavy: kotlin.Lazy<<root>.HeavyService>) declared in <root>.Consumer' type=<root>.Consumer origin=null
-                            ARG heavy: CALL 'public final fun inject <T> (qualifier: org.koin.core.qualifier.Qualifier?, mode: kotlin.LazyThreadSafetyMode, parameters: kotlin.Function0<org.koin.core.parameter.ParametersHolder>?): kotlin.Lazy<T of org.koin.core.scope.Scope.inject> declared in org.koin.core.scope.Scope' type=kotlin.Lazy<T of org.koin.core.scope.Scope.inject> origin=null
+                            ARG heavy: CALL 'public final fun inject <T> (qualifier: org.koin.core.qualifier.Qualifier?, mode: kotlin.LazyThreadSafetyMode, parameters: kotlin.Function0<org.koin.core.parameter.ParametersHolder>?): kotlin.Lazy<T of org.koin.core.scope.Scope.inject> declared in org.koin.core.scope.Scope' type=kotlin.Lazy<<root>.HeavyService> origin=null
                               TYPE_ARG T: <root>.HeavyService
                               ARG <this>: GET_VAR '<this>: org.koin.core.scope.Scope declared in <root>.module.<anonymous>.<anonymous>' type=org.koin.core.scope.Scope origin=null
                               ARG qualifier: CONST Null type=kotlin.Nothing? value=null

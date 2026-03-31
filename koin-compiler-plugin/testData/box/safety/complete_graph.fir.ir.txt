@@ -185,7 +185,7 @@ FILE fqName:<root> fileName:/testModuleModule.kt
                       BLOCK_BODY
                         RETURN type=kotlin.Nothing from='local final fun <anonymous> (<this>: org.koin.core.scope.Scope, params: org.koin.core.parameter.ParametersHolder): <root>.Service declared in <root>.module.<anonymous>'
                           CONSTRUCTOR_CALL 'public constructor <init> (repo: <root>.Repository) declared in <root>.Service' type=<root>.Service origin=null
-                            ARG repo: CALL 'public final fun get <T> (qualifier: org.koin.core.qualifier.Qualifier?, parameters: kotlin.Function0<org.koin.core.parameter.ParametersHolder>?): T of org.koin.core.scope.Scope.get declared in org.koin.core.scope.Scope' type=T of org.koin.core.scope.Scope.get origin=null
+                            ARG repo: CALL 'public final fun get <T> (qualifier: org.koin.core.qualifier.Qualifier?, parameters: kotlin.Function0<org.koin.core.parameter.ParametersHolder>?): T of org.koin.core.scope.Scope.get declared in org.koin.core.scope.Scope' type=<root>.Repository origin=null
                               TYPE_ARG T: <root>.Repository
                               ARG <this>: GET_VAR '<this>: org.koin.core.scope.Scope declared in <root>.module.<anonymous>.<anonymous>' type=org.koin.core.scope.Scope origin=null
                               ARG qualifier: CONST Null type=kotlin.Nothing? value=null
@@ -202,7 +202,7 @@ FILE fqName:<root> fileName:/testModuleModule.kt
                       BLOCK_BODY
                         RETURN type=kotlin.Nothing from='local final fun <anonymous> (<this>: org.koin.core.scope.Scope, params: org.koin.core.parameter.ParametersHolder): <root>.Presenter declared in <root>.module.<anonymous>'
                           CONSTRUCTOR_CALL 'public constructor <init> (service: <root>.Service) declared in <root>.Presenter' type=<root>.Presenter origin=null
-                            ARG service: CALL 'public final fun get <T> (qualifier: org.koin.core.qualifier.Qualifier?, parameters: kotlin.Function0<org.koin.core.parameter.ParametersHolder>?): T of org.koin.core.scope.Scope.get declared in org.koin.core.scope.Scope' type=T of org.koin.core.scope.Scope.get origin=null
+                            ARG service: CALL 'public final fun get <T> (qualifier: org.koin.core.qualifier.Qualifier?, parameters: kotlin.Function0<org.koin.core.parameter.ParametersHolder>?): T of org.koin.core.scope.Scope.get declared in org.koin.core.scope.Scope' type=<root>.Service origin=null
                               TYPE_ARG T: <root>.Service
                               ARG <this>: GET_VAR '<this>: org.koin.core.scope.Scope declared in <root>.module.<anonymous>.<anonymous>' type=org.koin.core.scope.Scope origin=null
                               ARG qualifier: CONST Null type=kotlin.Nothing? value=null

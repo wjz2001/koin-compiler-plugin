@@ -176,7 +176,7 @@ FILE fqName:<root> fileName:/testModuleModule.kt
                               BLOCK_BODY
                                 RETURN type=kotlin.Nothing from='local final fun <anonymous> (<this>: org.koin.core.scope.Scope, params: org.koin.core.parameter.ParametersHolder): <root>.SessionData declared in <root>.module.<anonymous>.<anonymous>'
                                   CONSTRUCTOR_CALL 'public constructor <init> (auth: <root>.AuthService) declared in <root>.SessionData' type=<root>.SessionData origin=null
-                                    ARG auth: CALL 'public final fun get <T> (qualifier: org.koin.core.qualifier.Qualifier?, parameters: kotlin.Function0<org.koin.core.parameter.ParametersHolder>?): T of org.koin.core.scope.Scope.get declared in org.koin.core.scope.Scope' type=T of org.koin.core.scope.Scope.get origin=null
+                                    ARG auth: CALL 'public final fun get <T> (qualifier: org.koin.core.qualifier.Qualifier?, parameters: kotlin.Function0<org.koin.core.parameter.ParametersHolder>?): T of org.koin.core.scope.Scope.get declared in org.koin.core.scope.Scope' type=<root>.AuthService origin=null
                                       TYPE_ARG T: <root>.AuthService
                                       ARG <this>: GET_VAR '<this>: org.koin.core.scope.Scope declared in <root>.module.<anonymous>.<anonymous>.<anonymous>' type=org.koin.core.scope.Scope origin=null
                                       ARG qualifier: CONST Null type=kotlin.Nothing? value=null

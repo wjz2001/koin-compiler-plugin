@@ -165,7 +165,7 @@ FILE fqName:<root> fileName:/testModuleModule.kt
                       BLOCK_BODY
                         RETURN type=kotlin.Nothing from='local final fun <anonymous> (<this>: org.koin.core.scope.Scope, params: org.koin.core.parameter.ParametersHolder): <root>.Consumer declared in <root>.module.<anonymous>'
                           CONSTRUCTOR_CALL 'public constructor <init> (service: <root>.QualifiedService) declared in <root>.Consumer' type=<root>.Consumer origin=null
-                            ARG service: CALL 'public final fun get <T> (qualifier: org.koin.core.qualifier.Qualifier?, parameters: kotlin.Function0<org.koin.core.parameter.ParametersHolder>?): T of org.koin.core.scope.Scope.get declared in org.koin.core.scope.Scope' type=T of org.koin.core.scope.Scope.get origin=null
+                            ARG service: CALL 'public final fun get <T> (qualifier: org.koin.core.qualifier.Qualifier?, parameters: kotlin.Function0<org.koin.core.parameter.ParametersHolder>?): T of org.koin.core.scope.Scope.get declared in org.koin.core.scope.Scope' type=<root>.QualifiedService origin=null
                               TYPE_ARG T: <root>.QualifiedService
                               ARG <this>: GET_VAR '<this>: org.koin.core.scope.Scope declared in <root>.module.<anonymous>.<anonymous>' type=org.koin.core.scope.Scope origin=null
                               ARG qualifier: CALL 'public final fun typeQualifier <T> (kclass: kotlin.reflect.KClass<T of org.koin.plugin.module.dsl.typeQualifier>): org.koin.core.qualifier.Qualifier declared in org.koin.plugin.module.dsl' type=org.koin.core.qualifier.Qualifier origin=null

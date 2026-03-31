@@ -114,6 +114,6 @@ FILE fqName:<root> fileName:/testModuleModule.kt
                       BLOCK_BODY
                         RETURN type=kotlin.Nothing from='local final fun <anonymous> (<this>: org.koin.core.scope.Scope, params: org.koin.core.parameter.ParametersHolder): <root>.Greeter declared in <root>.module.<anonymous>'
                           CONSTRUCTOR_CALL 'public constructor <init> (name: kotlin.String) declared in <root>.Greeter' type=<root>.Greeter origin=null
-                            ARG name: CALL 'public final fun get <T> (): T of org.koin.core.parameter.ParametersHolder.get declared in org.koin.core.parameter.ParametersHolder' type=T of org.koin.core.parameter.ParametersHolder.get origin=null
+                            ARG name: CALL 'public final fun get <T> (): T of org.koin.core.parameter.ParametersHolder.get declared in org.koin.core.parameter.ParametersHolder' type=kotlin.String origin=null
                               TYPE_ARG T: kotlin.String
                               ARG <this>: GET_VAR 'params: org.koin.core.parameter.ParametersHolder declared in <root>.module.<anonymous>.<anonymous>' type=org.koin.core.parameter.ParametersHolder origin=null
