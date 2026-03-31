@@ -34,7 +34,7 @@ koin-compiler-plugin/
 | File | Purpose |
 |------|---------|
 | `ir/KoinDSLTransformer.kt` | Transforms `single<T>()`, `factory<T>()`, `viewModel<T>()`, `worker<T>()`, `scoped<T>()`, `create(::T)` |
-| `ir/KoinStartTransformer.kt` | Transforms `startKoin<T>()`, `koinApplication<T>()`, `koinConfiguration<T>()`, `withConfiguration<T>()` |
+| `ir/KoinStartTransformer.kt` | Transforms `startKoin<T>()`, `koinApplication<T>()`, `koinConfiguration<T>()`, `withConfiguration<T>()`, `module<T>()`, `modules(vararg KClass)` |
 | `ir/KoinAnnotationProcessor.kt` | Processes `@Module`, `@ComponentScan`, `@Singleton`, `@PropertyValue`, `@Provided` annotations |
 | `ir/KoinIrExtension.kt` | Plugin entry point, orchestrates IR phases |
 | `ir/LambdaBuilder.kt` | Creates lambda expressions with proper scope/parameter handling |
@@ -64,6 +64,8 @@ koin-compiler-plugin/
 | `worker<T>()` | `Module` | Worker using primary constructor |
 | `scoped<T>()` | `ScopeDSL` | Scoped using primary constructor |
 | `create(::T)` | `Scope` | Create instance in scope |
+| `module<T>()` | `KoinApplication` | Load a single `@Module` class |
+| `modules(vararg KClass)` | `KoinApplication` | Load multiple `@Module` classes |
 
 ## Annotations
 

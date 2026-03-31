@@ -611,7 +611,44 @@ object TestApp
 
 **Result**: `startKoin<TestApp>()` discovers `TestModule` and `SharedModule` (both have "test" label).
 
-### 4.7 JSR-330 Support
+### 4.7 module\<T\>() — Load Individual Modules
+
+**Input**:
+```kotlin
+@Module @ComponentScan("com.app.network")
+class NetworkModule
+
+startKoin {
+    module<NetworkModule>()
+}
+```
+
+**Output**:
+```kotlin
+startKoin {
+    modules(NetworkModule().module())
+}
+```
+
+### 4.8 modules(vararg KClass) — Load Multiple Modules
+
+**Input**:
+```kotlin
+startKoin {
+    modules(DataModule::class, CacheModule::class)
+}
+```
+
+**Output**:
+```kotlin
+startKoin {
+    modules(DataModule().module(), CacheModule().module())
+}
+```
+
+**Note**: `module<T>()` and `modules(vararg KClass)` are intercepted by `KoinStartTransformer`. They cannot be used inside `startKoin<T> { }` (which is itself intercepted) — use them inside plain `startKoin { }` or `koinApplication { }` instead.
+
+### 4.9 JSR-330 Support
 
 The plugin supports JSR-330 (Jakarta/Javax) annotations as alternatives to Koin annotations:
 
