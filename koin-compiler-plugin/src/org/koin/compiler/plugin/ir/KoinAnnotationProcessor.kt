@@ -97,6 +97,7 @@ class KoinAnnotationProcessor(
     private val definitionTopLevelFunctions = mutableListOf<DefinitionTopLevelFunction>()
 
     // Cache for referenceFunctions results to avoid repeated expensive lookups
+    // Inspired by @JellyBrick (PR #5 — https://github.com/InsertKoinIO/koin-compiler-plugin/pull/5)
     private val referenceFunctionsCache = mutableMapOf<CallableId, Collection<org.jetbrains.kotlin.ir.symbols.IrSimpleFunctionSymbol>>()
 
     /**
@@ -1765,6 +1766,7 @@ class KoinAnnotationProcessor(
      * Includes: own definitions + included modules + @Configuration siblings (local + cross-module).
      */
     // Cached lookup map for O(1) module resolution by FQ name
+    // Inspired by @JellyBrick (PR #5 — https://github.com/InsertKoinIO/koin-compiler-plugin/pull/5)
     private var modulesByFqNameCache: Map<String?, ModuleClass>? = null
     private fun getModulesByFqName(): Map<String?, ModuleClass> {
         return modulesByFqNameCache ?: moduleClasses.associateBy { it.irClass.fqNameWhenAvailable?.asString() }.also {
@@ -1834,6 +1836,7 @@ class KoinAnnotationProcessor(
      * which sees both local FIR-generated hints and dependency hints from klib/JAR metadata.
      */
     // Cache for configuration module discovery (A2 sibling resolution)
+    // Inspired by @JellyBrick (PR #5 — https://github.com/InsertKoinIO/koin-compiler-plugin/pull/5)
     private val configurationModulesCache = mutableMapOf<List<String>, List<IrClass>>()
 
     private fun discoverConfigurationModulesFromHints(labels: List<String>): List<IrClass> {
