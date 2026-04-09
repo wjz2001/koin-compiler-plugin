@@ -346,11 +346,16 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
     /**
      * Holds a definition class (@Singleton, @Factory, @KoinViewModel, etc.) with its type and source info.
      * Used for cross-module discovery via hint functions.
+     * Carries qualifier, scope, and binding metadata for cross-module safety validation.
      */
     private data class DefinitionClassInfo(
         val classSymbol: FirClassSymbol<*>,
         val definitionType: String, // single, factory, scoped, viewmodel, worker
-        val containingFileName: String?
+        val containingFileName: String?,
+        val qualifierName: String? = null,           // from @Named("x") or @Qualifier(name="x")
+        val qualifierTypeClassId: ClassId? = null,   // from @Qualifier(Type::class)
+        val scopeClassId: ClassId? = null,            // from @Scope(MyScope::class)
+        val bindingClassIds: List<ClassId> = emptyList() // auto-detected supertypes (interfaces/abstract classes)
     )
 
     /**
@@ -394,12 +399,10 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
     // ================================================================================
 
     /**
-     * Extract a string qualifier from @Named("x") or @Qualifier(name="x") on a FIR function symbol.
+     * Extract a string qualifier from @Named("x") or @Qualifier(name="x") on annotations.
      * Returns the qualifier string, or null if no string qualifier is present.
      */
-    private fun extractQualifierName(functionSymbol: FirNamedFunctionSymbol): String? {
-        val annotations = functionSymbol.fir.annotations.filterIsInstance<FirAnnotationCall>()
-
+    private fun extractQualifierNameFromAnnotations(annotations: List<FirAnnotationCall>): String? {
         // Check for @Named("x")
         val namedAnnotation = annotations.firstOrNull { annotation ->
             val annotationClassId = annotation.annotationTypeRef.coneTypeOrNull?.classId
@@ -426,12 +429,16 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
         return null
     }
 
+    private fun extractQualifierName(functionSymbol: FirNamedFunctionSymbol): String? =
+        extractQualifierNameFromAnnotations(functionSymbol.fir.annotations.filterIsInstance<FirAnnotationCall>())
+
+    private fun extractQualifierName(classSymbol: FirClassSymbol<*>): String? =
+        extractQualifierNameFromAnnotations(classSymbol.fir.annotations.filterIsInstance<FirAnnotationCall>())
+
     /**
-     * Extract a type-based qualifier ClassId from @Qualifier(Type::class) on a FIR function symbol.
-     * Returns the ClassId of the qualifier type, or null if no type qualifier is present.
+     * Extract a type-based qualifier ClassId from @Qualifier(Type::class) on annotations.
      */
-    private fun extractQualifierTypeClassId(functionSymbol: FirNamedFunctionSymbol): ClassId? {
-        val annotations = functionSymbol.fir.annotations.filterIsInstance<FirAnnotationCall>()
+    private fun extractQualifierTypeClassIdFromAnnotations(annotations: List<FirAnnotationCall>): ClassId? {
         val qualifierAnnotation = annotations.firstOrNull { annotation ->
             val annotationClassId = annotation.annotationTypeRef.coneTypeOrNull?.classId
             annotationClassId?.asSingleFqName() == KoinAnnotationFqNames.QUALIFIER
@@ -440,11 +447,16 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
         return extractClassIdArgument(qualifierAnnotation)
     }
 
+    private fun extractQualifierTypeClassId(functionSymbol: FirNamedFunctionSymbol): ClassId? =
+        extractQualifierTypeClassIdFromAnnotations(functionSymbol.fir.annotations.filterIsInstance<FirAnnotationCall>())
+
+    private fun extractQualifierTypeClassId(classSymbol: FirClassSymbol<*>): ClassId? =
+        extractQualifierTypeClassIdFromAnnotations(classSymbol.fir.annotations.filterIsInstance<FirAnnotationCall>())
+
     /**
-     * Extract scope ClassId from @Scope(MyScope::class) on a FIR function symbol.
+     * Extract scope ClassId from @Scope(MyScope::class) on annotations.
      */
-    private fun extractScopeClassId(functionSymbol: FirNamedFunctionSymbol): ClassId? {
-        val annotations = functionSymbol.fir.annotations.filterIsInstance<FirAnnotationCall>()
+    private fun extractScopeClassIdFromAnnotations(annotations: List<FirAnnotationCall>): ClassId? {
         val scopeAnnotation = annotations.firstOrNull { annotation ->
             val annotationClassId = annotation.annotationTypeRef.coneTypeOrNull?.classId
             annotationClassId?.asSingleFqName() == KoinAnnotationFqNames.SCOPE
@@ -452,6 +464,12 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
 
         return extractClassIdArgument(scopeAnnotation)
     }
+
+    private fun extractScopeClassId(functionSymbol: FirNamedFunctionSymbol): ClassId? =
+        extractScopeClassIdFromAnnotations(functionSymbol.fir.annotations.filterIsInstance<FirAnnotationCall>())
+
+    private fun extractScopeClassId(classSymbol: FirClassSymbol<*>): ClassId? =
+        extractScopeClassIdFromAnnotations(classSymbol.fir.annotations.filterIsInstance<FirAnnotationCall>())
 
     /**
      * Detect auto-binding ClassIds from the return type's supertypes.
@@ -910,9 +928,22 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
                         if (isCoveredByLocalScan(packageName)) {
                             log { "  Skipping @$defType class: ${classSymbol.classId} - covered by local @ComponentScan" }
                         } else {
+                            // Extract metadata for cross-module safety validation
+                            val qualifierName = extractQualifierName(classSymbol)
+                            val qualifierTypeClassId = extractQualifierTypeClassId(classSymbol)
+                            val scopeClassId = extractScopeClassId(classSymbol)
+                            val bindingClassIds = detectBindingClassIds(classSymbol.classId)
+
                             log { "  Found @$defType class: ${classSymbol.classId} (orphan, needs hint)" }
+                            if (qualifierName != null) log { "    qualifier: @Named(\"$qualifierName\")" }
+                            if (qualifierTypeClassId != null) log { "    qualifierType: $qualifierTypeClassId" }
+                            if (scopeClassId != null) log { "    scope: $scopeClassId" }
+                            if (bindingClassIds.isNotEmpty()) log { "    bindings: $bindingClassIds" }
                             logUser { "Exporting @$defType ${classSymbol.classId.shortClassName} for cross-module discovery" }
-                            definitions.add(DefinitionClassInfo(classSymbol, defType, containingFileName))
+                            definitions.add(DefinitionClassInfo(
+                                classSymbol, defType, containingFileName,
+                                qualifierName, qualifierTypeClassId, scopeClassId, bindingClassIds
+                            ))
                         }
                     }
                 }
@@ -1247,9 +1278,16 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
                                 if (isCoveredByLocalScan(packageName)) {
                                     log { "  Skipping @Inject constructor class: $classId - covered by local @ComponentScan" }
                                 } else {
+                                    val qualifierName = extractQualifierName(symbol)
+                                    val qualifierTypeClassId = extractQualifierTypeClassId(symbol)
+                                    val scopeClassId = extractScopeClassId(symbol)
+                                    val bindingClassIds = detectBindingClassIds(classId)
                                     log { "  Found @Inject constructor class: $classId (orphan, needs hint)" }
                                     logUser { "Exporting @Inject constructor ${classId.shortClassName} for cross-module discovery" }
-                                    definitions.add(DefinitionClassInfo(symbol, DEF_TYPE_FACTORY, containingFileName))
+                                    definitions.add(DefinitionClassInfo(
+                                        symbol, DEF_TYPE_FACTORY, containingFileName,
+                                        qualifierName, qualifierTypeClassId, scopeClassId, bindingClassIds
+                                    ))
                                     count++
                                 }
                             }
@@ -1514,6 +1552,13 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
 
                     log { "  -> Generating definition hint for ${classSymbol.classId} (type=$defType) in file $effectiveFileName" }
 
+                    val metadataParams = buildMetadataParams(
+                        defInfo.bindingClassIds,
+                        defInfo.scopeClassId,
+                        defInfo.qualifierName,
+                        defInfo.qualifierTypeClassId
+                    )
+
                     createTopLevelFunction(
                         Key,
                         callableId,
@@ -1522,6 +1567,10 @@ class KoinModuleFirGenerator(session: FirSession) : FirDeclarationGenerationExte
                     ) {
                         // visibility stays public for cross-module discovery
                         valueParameter(Name.identifier("contributed"), classType)
+                        // Encode bindings, scope, qualifier metadata for cross-module safety validation
+                        for ((paramName, paramType) in metadataParams) {
+                            valueParameter(paramName, paramType)
+                        }
                     }.apply { markAsDeprecatedHidden() }.symbol
                 }
             }

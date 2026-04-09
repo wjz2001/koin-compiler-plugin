@@ -1,0 +1,76 @@
+FILE: CacheImpl.kt
+    package data
+
+    public abstract interface Cache : R|kotlin/Any| {
+    }
+    @R|org/koin/core/annotation/Singleton|() @R|org/koin/core/annotation/Named|(value = String(local)) public final class LocalCache : R|data/Cache| {
+        public constructor(): R|data/LocalCache| {
+            super<R|kotlin/Any|>()
+        }
+
+    }
+    @R|org/koin/core/annotation/Singleton|() @R|org/koin/core/annotation/Named|(value = String(remote)) public final class RemoteCache : R|data/Cache| {
+        public constructor(): R|data/RemoteCache| {
+            super<R|kotlin/Any|>()
+        }
+
+    }
+FILE: CacheManager.kt
+    package ui
+
+    @R|org/koin/core/annotation/Singleton|() public final class CacheManager : R|kotlin/Any| {
+        public constructor(@R|org/koin/core/annotation/Named|(value = String(local)) local: R|data/Cache|, @R|org/koin/core/annotation/Named|(value = String(remote)) remote: R|data/Cache|): R|ui/CacheManager| {
+            super<R|kotlin/Any|>()
+        }
+
+        public final val local: R|data/Cache| = R|<local>/local|
+            public get(): R|data/Cache|
+
+        public final val remote: R|data/Cache| = R|<local>/remote|
+            public get(): R|data/Cache|
+
+    }
+FILE: modules.kt
+    @R|org/koin/core/annotation/Module|() @R|org/koin/core/annotation/ComponentScan|(value = vararg(String(data))) @R|org/koin/core/annotation/Configuration|() public final class DataModule : R|kotlin/Any| {
+        public constructor(): R|DataModule| {
+            super<R|kotlin/Any|>()
+        }
+
+    }
+    @R|org/koin/core/annotation/Module|() @R|org/koin/core/annotation/ComponentScan|(value = vararg(String(ui))) @R|org/koin/core/annotation/Configuration|() public final class UiModule : R|kotlin/Any| {
+        public constructor(): R|UiModule| {
+            super<R|kotlin/Any|>()
+        }
+
+    }
+FILE: test.kt
+    public final fun box(): R|kotlin/String| {
+        lval koin: R|org/koin/core/Koin| = R|org/koin/dsl/koinApplication|(<L> = koinApplication@fun R|org/koin/core/KoinApplication|.<anonymous>(): R|kotlin/Unit| <inline=NoInline>  {
+            this@R|special/anonymous|.R|org/koin/core/KoinApplication.modules|(vararg(R|/DataModule.DataModule|().R|/module|(), R|/UiModule.UiModule|().R|/module|()))
+        }
+        ).R|org/koin/core/KoinApplication.koin|
+        lval manager: R|ui/CacheManager| = R|<local>/koin|.R|org/koin/core/Koin.get|<R|ui/CacheManager|>()
+        lval localOk: R|kotlin/Boolean| = (R|<local>/manager|.R|ui/CacheManager.local| is R|data/LocalCache|)
+        lval remoteOk: R|kotlin/Boolean| = (R|<local>/manager|.R|ui/CacheManager.remote| is R|data/RemoteCache|)
+        ^box when () {
+            R|<local>/localOk| && R|<local>/remoteOk| ->  {
+                String(OK)
+            }
+            else ->  {
+                <strcat>(String(FAIL: local=), R|<local>/localOk|, String(, remote=), R|<local>/remoteOk|)
+            }
+        }
+
+    }
+FILE: /dataModuleModule.kt
+    public final fun R|DataModule|.module(): R|org/koin/core/module/Module|
+FILE: /uiModuleModule.kt
+    public final fun R|UiModule|.module(): R|org/koin/core/module/Module|
+FILE: org/koin/plugin/hints/dataModuleModule.kt
+    package org.koin.plugin.hints
+
+    @R|kotlin/Deprecated|(message = String(Koin compiler plugin internal hint function), level = Q|kotlin/DeprecationLevel|.R|kotlin/DeprecationLevel.HIDDEN|) public final fun configuration_default(contributed: R|DataModule|): R|kotlin/Unit|
+FILE: org/koin/plugin/hints/uiModuleModule.kt
+    package org.koin.plugin.hints
+
+    @R|kotlin/Deprecated|(message = String(Koin compiler plugin internal hint function), level = Q|kotlin/DeprecationLevel|.R|kotlin/DeprecationLevel.HIDDEN|) public final fun configuration_default(contributed: R|UiModule|): R|kotlin/Unit|

@@ -1,5 +1,8 @@
 // RUN_PIPELINE_TILL: BACKEND
 // FILE: test.kt
+// FLAKY: Occasionally fails when run as part of the full ./test.sh suite (non-deterministic).
+// Passes when run alone. Reproduces on baseline, not introduced by current work. Suspected cause:
+// Kotlin compiler test framework state pollution within a shared JVM.
 import org.koin.dsl.module
 import org.koin.core.context.startKoin
 import org.koin.plugin.module.dsl.single

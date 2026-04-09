@@ -335,6 +335,18 @@ public class JvmBoxTestGenerated extends AbstractJvmBoxTest {
     }
 
     @Test
+    @TestMetadata("qualifier_cross_module.kt")
+    public void testQualifier_cross_module() {
+      runTest("koin-compiler-plugin/testData/box/safety/qualifier_cross_module.kt");
+    }
+
+    @Test
+    @TestMetadata("qualifier_cross_module_type.kt")
+    public void testQualifier_cross_module_type() {
+      runTest("koin-compiler-plugin/testData/box/safety/qualifier_cross_module_type.kt");
+    }
+
+    @Test
     @TestMetadata("qualifier_match.kt")
     public void testQualifier_match() {
       runTest("koin-compiler-plugin/testData/box/safety/qualifier_match.kt");

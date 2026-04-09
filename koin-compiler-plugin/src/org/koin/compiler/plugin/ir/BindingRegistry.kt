@@ -323,7 +323,7 @@ class BindingRegistry {
     private fun extractQualifierFromDefinition(def: Definition, qualifierExtractor: QualifierExtractor): QualifierValue? {
         // Extract qualifier from the IR element (class or function) using the shared extractor.
         return when (def) {
-            is Definition.ClassDef -> qualifierExtractor.extractFromClass(def.irClass)
+            is Definition.ClassDef -> def.qualifier ?: qualifierExtractor.extractFromClass(def.irClass)
             is Definition.FunctionDef -> qualifierExtractor.extractFromDeclaration(def.irFunction)
             is Definition.TopLevelFunctionDef -> qualifierExtractor.extractFromDeclaration(def.irFunction)
             is Definition.DslDef -> def.qualifier ?: qualifierExtractor.extractFromClass(def.irClass)

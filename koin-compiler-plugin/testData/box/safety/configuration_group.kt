@@ -1,4 +1,7 @@
 // FILE: core/Repository.kt
+// FLAKY: Occasionally fails when run as part of the full ./test.sh suite (non-deterministic).
+// Passes when run alone. Reproduces on baseline, not introduced by current work. Suspected cause:
+// Kotlin compiler test framework state pollution within a shared JVM.
 package core
 
 import org.koin.core.annotation.Singleton

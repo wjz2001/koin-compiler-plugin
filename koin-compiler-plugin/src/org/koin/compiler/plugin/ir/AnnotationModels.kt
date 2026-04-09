@@ -32,7 +32,8 @@ data class DefinitionClass(
     val bindings: List<IrClass>, // Interfaces/superclasses to bind (auto-detected + explicit)
     val scopeClass: IrClass? = null, // Scope class from @Scope(MyScope::class)
     val scopeArchetype: ScopeArchetype? = null, // Scope archetype (@ViewModelScope, etc.)
-    val createdAtStart: Boolean = false // createdAtStart parameter from @Single/@Singleton
+    val createdAtStart: Boolean = false, // createdAtStart parameter from @Single/@Singleton
+    val qualifier: QualifierValue? = null // Qualifier from @Named/@Qualifier (propagated from cross-module hints)
 )
 
 /**
@@ -79,7 +80,11 @@ sealed class Definition {
         override val bindings: List<IrClass>,
         override val scopeClass: IrClass? = null,
         override val scopeArchetype: ScopeArchetype? = null,
-        override val createdAtStart: Boolean = false
+        override val createdAtStart: Boolean = false,
+        // Qualifier propagated from cross-module hint metadata. When non-null, overrides the
+        // QualifierExtractor lookup on irClass — necessary for `@Qualifier` meta-annotations
+        // that don't survive in cross-module Kotlin metadata.
+        val qualifier: QualifierValue? = null
     ) : Definition() {
         override val returnTypeClass: IrClass get() = irClass
     }
