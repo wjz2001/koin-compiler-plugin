@@ -832,16 +832,17 @@ class KoinAnnotationProcessor(
     ) {
         val hintsPackage = KoinModuleFirGenerator.HINTS_PACKAGE
 
-        // Only process @Configuration modules with @ComponentScan
-        val configModulesWithScan = moduleClasses.filter { moduleClass ->
-            moduleClass.hasComponentScan && hasConfigurationAnnotation(moduleClass.irClass)
+        // Process all @Module classes that have @ComponentScan.
+        // Rationale: @ComponentScan is documented as working with @Module regardless of @Configuration.
+        val modulesWithScan = moduleClasses.filter { it.hasComponentScan }
+        if (modulesWithScan.isEmpty()) return
+
+        val configCount = modulesWithScan.count { hasConfigurationAnnotation(it.irClass) }
+        KoinPluginLogger.debug {
+            "generateModuleScanHints: ${modulesWithScan.size} @Module modules with @ComponentScan (config=$configCount)"
         }
 
-        if (configModulesWithScan.isEmpty()) return
-
-        KoinPluginLogger.debug { "generateModuleScanHints: ${configModulesWithScan.size} @Configuration modules with @ComponentScan" }
-
-        for (moduleClass in configModulesWithScan) {
+        for (moduleClass in modulesWithScan) {
             val definitions = moduleDefinitions[moduleClass] ?: continue
             if (definitions.isEmpty()) continue
 
